@@ -1,6 +1,8 @@
 import argparse
+import time
+import datetime
 
-from train import main
+from train import main, arg_parser
 
 
 ENVS = [('finger','spin'),('cartpole','swing'),
@@ -18,12 +20,20 @@ IMAGE_SIZE_LOOKUP = {'crop' : 84, 'translate' : 108}
 def run_experiment(**kwargs):
     argv = []
     for k, v in kwargs.items():
-        argv.extend([f"--{k}", f"{v}"])
+        if type(v) == bool:
+            # handle store true args
+            if v:
+                argv.append(f"--{k}")
+        else:
+            argv.extend([f"--{k}", f"{v}"])
 
-    parser = argparse.ArgumentParser()
-    args = parser.parse_args(argv)
+    args = arg_parser().parse_args(argv)
 
+    t = time.time()
+    print(f"Running env:{'-'.join([args.domain_name, args.task_name])}")
     main(args)
+    dt = time.time() - t
+    print(f"Completed in {datetime.timedelta(seconds=time.time()-t)}")
 
 def run_100k(agent, seeds, work_dir):
     for seed in seeds:

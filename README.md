@@ -23,6 +23,10 @@ All of the dependencies are in the `conda_env.yml` file. They can be installed m
 ```
 conda env create -f conda_env.yml
 ```
+Might need to use this command if cuda does not recognize cuda
+```
+conda install pytorch torchvision torchaudio cudatoolkit=10.2 -c pytorch
+```
 
 ## Instructions
 To train a RAD agent on the `cartpole swingup` task from image-based observations run `bash script/run.sh` from the root of this directory. The `run.sh` file contains the following command, which you can modify to try different environments / augmentations / hyperparamters.

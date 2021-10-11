@@ -19,7 +19,7 @@ from curl_sac import RadSacAgent
 from torchvision import transforms
 import data_augs as rad
 
-def parse_args():
+def arg_parser():
     parser = argparse.ArgumentParser()
     # environment
     parser.add_argument('--domain_name', default='cartpole')
@@ -77,8 +77,7 @@ def parse_args():
 
 
     parser.add_argument('--log_interval', default=100, type=int)
-    args = parser.parse_args()
-    return args
+    return parser
 
 
 def evaluate(env, agent, video, num_episodes, L, step, args):
@@ -181,8 +180,7 @@ def make_agent(obs_shape, action_shape, args, device):
         assert 'agent is not supported: %s' % args.agent
 
 def main(args):
-
-    if args.seed == -1: 
+    if args.seed == -1:
         args.__dict__["seed"] = np.random.randint(1,1000000)
     utils.set_seed_everywhere(args.seed)
 
@@ -315,5 +313,5 @@ def main(args):
 if __name__ == '__main__':
     torch.multiprocessing.set_start_method('spawn')
 
-    args = parse_args()
+    args = arg_parser().parse_args()
     main(args)
