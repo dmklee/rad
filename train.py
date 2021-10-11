@@ -180,8 +180,8 @@ def make_agent(obs_shape, action_shape, args, device):
     else:
         assert 'agent is not supported: %s' % args.agent
 
-def main():
-    args = parse_args()
+def main(args):
+
     if args.seed == -1: 
         args.__dict__["seed"] = np.random.randint(1,1000000)
     utils.set_seed_everywhere(args.seed)
@@ -315,4 +315,5 @@ def main():
 if __name__ == '__main__':
     torch.multiprocessing.set_start_method('spawn')
 
-    main()
+    args = parse_args()
+    main(args)
