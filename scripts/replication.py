@@ -1,5 +1,6 @@
+import argparse
 
-from train import main, parse_args
+from train import main
 
 
 ENVS = [('finger','spin'),('cartpole','swing'),
@@ -16,9 +17,11 @@ IMAGE_SIZE_LOOKUP = {'crop' : 84, 'translate' : 108}
 
 def run_experiment(**kwargs):
     argv = []
-    for k, v in kwargs:
-        argv.extend([f"--{k}", v])
-    args = args.parse_args(argv)
+    for k, v in kwargs.items():
+        argv.extend([f"--{k}", f"{v}"])
+
+    parser = argparse.ArgumentParser()
+    args = parser.parse_args(argv)
 
     main(args)
 
@@ -76,8 +79,8 @@ def run_100k(agent, seeds, work_dir):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--agent', type=int, default='rad_sac') # pixel_sac
-    parser.add_argument('--seeds', type=int, nargs='+')
+    parser.add_argument('--agent', type=str, default='rad_sac') # pixel_sac
+    parser.add_argument('--seeds', type=int, nargs='+', default=[0])
     parser.add_argument('--work_dir', type=str, default='./results')
     args = parser.parse_args()
 
