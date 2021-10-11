@@ -145,7 +145,7 @@ def evaluate(env, agent, video, num_episodes, L, step, args):
 
 
 def make_agent(obs_shape, action_shape, args, device):
-    if args.agent == 'rad_sac':
+    if args.agent in ('rad_sac', 'pixel_sac'):
         return RadSacAgent(
             obs_shape=obs_shape,
             action_shape=action_shape,
@@ -174,7 +174,6 @@ def make_agent(obs_shape, action_shape, args, device):
             detach_encoder=args.detach_encoder,
             latent_dim=args.latent_dim,
             data_augs=args.data_augs
-
         )
     else:
         assert 'agent is not supported: %s' % args.agent
@@ -208,8 +207,10 @@ def main(args):
     ts = time.gmtime() 
     ts = time.strftime("%m-%d", ts)    
     env_name = args.domain_name + '-' + args.task_name
-    exp_name = env_name + '-' + ts + '-im' + str(args.image_size) +'-b'  \
-    + str(args.batch_size) + '-s' + str(args.seed)  + '-' + args.encoder_type
+    # exp_name = env_name + '-' + ts + '-im' + str(args.image_size) +'-b'  \
+    # + str(args.batch_size) + '-s' + str(args.seed)  + '-' + args.encoder_type
+    exp_name = f"{env_name}-{ts}-s{args.seed}-{args.encoder_type}"
+    exp_name += f"-{'withDA' if args.data_augs != '' else 'withoutDA'}"
     args.work_dir = args.work_dir + '/'  + exp_name
 
     utils.make_dir(args.work_dir)

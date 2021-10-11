@@ -15,7 +15,7 @@ ACTION_REPEAT_LOOKUP = {('finger', 'spin') : 2,
                         ('cheetah', 'run') : 4,
                         ('cup', 'catch') : 4,
                        }
-IMAGE_SIZE_LOOKUP = {'crop' : 84, 'translate' : 108}
+IMAGE_SIZE_LOOKUP = {'crop' : 84, 'translate' : 108, '' :  84}
 
 def run_experiment(**kwargs):
     argv = []
@@ -39,7 +39,10 @@ def run_100k(agent, seeds, work_dir):
     for seed in seeds:
         for env in ENVS:
             domain, task = env
-            data_aug = 'crop' if env==('walker','walk') else 'translate'
+            if agent == 'rad_sac':
+                data_aug = 'crop' if env==('walker','walk') else 'translate'
+            else:
+                data_aug = ''
             image_size = IMAGE_SIZE_LOOKUP[data_aug]
             action_repeat = ACTION_REPEAT_LOOKUP[env]
 
