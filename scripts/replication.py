@@ -5,7 +5,7 @@ import datetime
 from train import main, arg_parser
 
 
-ENVS = [('finger','spin'),('cartpole','swing'),
+ENVS = [('finger','spin'), ('cartpole','swingup'),
         ('reacher','easy'),('cheetah','run'),
         ('walker','walk'),('cup','catch')]
 ACTION_REPEAT_LOOKUP = {('finger', 'spin') : 2,
@@ -30,14 +30,14 @@ def run_experiment(**kwargs):
     args = arg_parser().parse_args(argv)
 
     t = time.time()
-    print(f"Running env:{'-'.join([args.domain_name, args.task_name])}")
+    print(f"Running {args.agent} on {'-'.join([args.domain_name, args.task_name])} (seed={args.seed}) ")
     main(args)
     dt = time.time() - t
     print(f"Completed in {datetime.timedelta(seconds=time.time()-t)}")
 
-def run_100k(agent, seeds, work_dir):
+def run_100k(agent, seeds, work_dir, envs):
     for seed in seeds:
-        for env in ENVS:
+        for env in envs:
             domain, task = env
             if agent == 'rad_sac':
                 data_aug = 'crop' if env==('walker','walk') else 'translate'
@@ -93,8 +93,14 @@ def run_100k(agent, seeds, work_dir):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--agent', type=str, default='rad_sac') # pixel_sac
+    parser.add_argument('--envs', type=str, nargs='+', default=[])
     parser.add_argument('--seeds', type=int, nargs='+', default=[0])
     parser.add_argument('--work_dir', type=str, default='./results')
     args = parser.parse_args()
 
-    run_100k(args.agent, args.seeds, args.work_dir)
+    if len(args.envs):
+        envs = [tuple(e.split('-')) for e in args.envs]
+    else:
+        envs = ENVS
+
+    run_100k(args.agent, args.seeds, args.work_dir, envs)
