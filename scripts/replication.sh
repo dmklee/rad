@@ -12,7 +12,7 @@ do
 		for env in $ENVS
 		do
 			tmp=$((seed + CUDA_ID * 10))
-			python -m scripts.replication --seeds $tmp --envs $env --agent $agent || true
+			CUDA_VISIBLE_DEVICES=$CUDA_ID python -m scripts.replication --seeds $tmp --envs $env --agent $agent || true
 		done
 	done
 done
