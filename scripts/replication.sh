@@ -1,18 +1,18 @@
 #!/bin/bash
 
-#ENVS= (finger-spin cartpole-swingup reacher-easy cheetah-run walker-walk cup-catch)
-ENVS=( reacher-easy )
-# cheetah-run walker-walk cup-catch )
+ENVS=( cartpole-swingup reacher-easy cheetah-run finger-spin walker-walk cup-catch)
 AGENTS=( rad_sac pixel_sac )
-SEEDS=( 1 2 3 )
+SEEDS=( 0 1 )
 
+CUDA_ID=$1
 for seed in $SEEDS
 do
-	for env in $ENVS
+	for agent in $AGENTS
 	do
-		for agent in $AGENTS
+		for env in $ENVS
 		do
-			python -m scripts.replication --seeds $seed --envs $env --agent $agent || true
+			tmp=$((seed + CUDA_ID * 10))
+			python -m scripts.replication --seeds $tmp --envs $env --agent $agent || true
 		done
 	done
 done
