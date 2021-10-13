@@ -337,19 +337,19 @@ class RadSacAgent(object):
             [self.log_alpha], lr=alpha_lr, betas=(alpha_beta, 0.999)
         )
 
-        if self.encoder_type == 'pixel':
-            # create CURL encoder (the 128 batch size is probably unnecessary)
-            self.CURL = CURL(obs_shape, encoder_feature_dim,
-                        self.latent_dim, self.critic,self.critic_target, output_type='continuous').to(self.device)
+        # if self.encoder_type == 'pixel':
+            # # create CURL encoder (the 128 batch size is probably unnecessary)
+            # self.CURL = CURL(obs_shape, encoder_feature_dim,
+                        # self.latent_dim, self.critic,self.critic_target, output_type='continuous').to(self.device)
 
-            # optimizer for critic encoder for reconstruction loss
-            self.encoder_optimizer = torch.optim.Adam(
-                self.critic.encoder.parameters(), lr=encoder_lr
-            )
+            # # optimizer for critic encoder for reconstruction loss
+            # self.encoder_optimizer = torch.optim.Adam(
+                # self.critic.encoder.parameters(), lr=encoder_lr
+            # )
 
-            self.cpc_optimizer = torch.optim.Adam(
-                self.CURL.parameters(), lr=encoder_lr
-            )
+            # self.cpc_optimizer = torch.optim.Adam(
+                # self.CURL.parameters(), lr=encoder_lr
+            # )
         self.cross_entropy_loss = nn.CrossEntropyLoss()
 
         self.train()
@@ -359,8 +359,8 @@ class RadSacAgent(object):
         self.training = training
         self.actor.train(training)
         self.critic.train(training)
-        if self.encoder_type == 'pixel':
-            self.CURL.train(training)
+        # if self.encoder_type == 'pixel':
+            # self.CURL.train(training)
 
     @property
     def alpha(self):
