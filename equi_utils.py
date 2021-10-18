@@ -8,7 +8,6 @@ import torchextractor as tx
 import dmc2gym
 
 import utils
-from data_augs import random_pixel_shift
 from train import make_agent
 
 def cosine_distance(x, y):
@@ -144,8 +143,7 @@ def load_from_results(results_folder):
         device=device
     )
 
-    # agent.load(os.path.join(results_folder, 'model'), args.num_train_steps)
-    agent.load(os.path.join(results_folder, 'model'), 0)
+    agent.load(os.path.join(results_folder, 'model'), 100000)
 
     return env, agent, args
 
@@ -193,6 +191,7 @@ def extract_module_names(model, mode='inv'):
 
 def evaluate_models(results_folder, n_samples=128, n_augs=8, policy_type='optimal'):
     env, agent, args = load_from_results(results_folder)
+    return
 
     obss = collect_observations(env, agent, n_samples, policy_type)
 
@@ -228,4 +227,4 @@ if __name__ == "__main__":
     parent_dir = 'results'
     folders = [os.path.join(parent_dir, p) for p in next(os.walk(parent_dir))[1]]
     for f in folders:
-        evaluate_models(folders)
+        evaluate_models(f)

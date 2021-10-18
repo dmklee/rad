@@ -84,7 +84,7 @@ def run_100k(agent, seeds, work_dir, envs):
                            save_tb=False,
                            save_buffer=False,
                            save_video=False,
-                           save_model=True,
+                           save_model=False,
                            detach_encoder=False,
                            data_augs=data_aug,
                           )

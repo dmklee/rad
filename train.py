@@ -311,6 +311,8 @@ def main(args):
         obs = next_obs
         episode_step += 1
 
+    agent.save(model_dir, args.num_train_steps)
+
 
 if __name__ == '__main__':
     torch.multiprocessing.set_start_method('spawn')
