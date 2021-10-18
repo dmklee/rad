@@ -9,6 +9,10 @@ from torch.utils.data import Dataset, DataLoader
 import time
 from skimage.util.shape import view_as_windows
 
+class Bunch(object):
+    def __init__(self, adict):
+        self.__dict__.update(adict)
+
 class eval_mode(object):
     def __init__(self, *models):
         self.models = models

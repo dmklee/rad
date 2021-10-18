@@ -4,7 +4,6 @@ import datetime
 
 from train import main, arg_parser
 
-
 ENVS = [('finger','spin'), ('cartpole','swingup'),
         ('reacher','easy'),('cheetah','run'),
         ('walker','walk'),('cup','catch')]
@@ -40,7 +39,7 @@ def run_100k(agent, seeds, work_dir, envs):
         for env in envs:
             domain, task = env
             if agent == 'rad_sac':
-                data_aug = 'crop' if env==('walker','walk') else 'translate'
+                data_aug = 'crop'
             else:
                 data_aug = ''
             image_size = IMAGE_SIZE_LOOKUP[data_aug]
