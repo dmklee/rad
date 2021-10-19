@@ -147,7 +147,7 @@ def load_from_results(results_folder):
 
     return env, agent, args
 
-def collect_observations(env, agent, n_obs, policy_type='optimal'):
+def collect_observations(env, agent, n_obs, policy_type):
     assert policy_type in ('optimal', 'sampled', 'random')
     # collect samples
     obss = []
@@ -160,7 +160,8 @@ def collect_observations(env, agent, n_obs, policy_type='optimal'):
 
         with utils.eval_mode(agent):
             if policy_type == 'optimal':
-                action = agent.select_action(obs / 255.)
+                print(obs.shape, agent.image_size)
+                action = agent.select_action(utils.center_crop_image(obs, agent.image_size) / 255.)
             elif policy_type == 'sampled':
                 action = agent.sample_action(obs / 255.)
             else:
@@ -191,7 +192,6 @@ def extract_module_names(model, mode='inv'):
 
 def evaluate_models(results_folder, n_samples=128, n_augs=8, policy_type='optimal'):
     env, agent, args = load_from_results(results_folder)
-    return
 
     obss = collect_observations(env, agent, n_samples, policy_type)
 
@@ -227,4 +227,5 @@ if __name__ == "__main__":
     parent_dir = 'results'
     folders = [os.path.join(parent_dir, p) for p in next(os.walk(parent_dir))[1]]
     for f in folders:
-        evaluate_models(f)
+        if f.count('reacher') and f.count('without')<0:
+            evaluate_models(f)
