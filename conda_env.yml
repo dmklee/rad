@@ -19,4 +19,4 @@ dependencies:
     - torchvision
     - scikit-image
     - tabulate
-    - torchextractor
+    - antialiased-cnns

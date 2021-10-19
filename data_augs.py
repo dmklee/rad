@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import scipy.ndimage
 import torch
 import torch.nn as nn
 from TransformLayer import ColorJitterLayer
@@ -249,10 +250,27 @@ def random_translate(imgs, size, return_random_idxs=False, h1s=None, w1s=None):
         return outs, dict(h1s=h1s, w1s=w1s)
     return outs
 
+def pixel_shift(imgs, output_size, dh, dw):
+    '''can perform subpixel
+    '''
+    shifted_imgs = scipy.ndimage.shift(imgs, (0, 0, dh, dw))
+
+    w = imgs.shape[-1]
+    mid = output_size//2
+    return shifted_imgs[:, mid-w//2:mid+w//2, mid-w//2:mid+w//2]
+
+def random_pixel_shift(imgs, output_size, min_shift, max_shift, subpixel=False):
+    if max_shift == 0:
+        dh, dw = 0, 0
+    elif subpixel:
+        dh, dw = np.random.uniform(min_shift, max_shift, size=2)
+    else:
+        dh, dw = np.random.randint(min_shift, max_shift+1, size=2)
+
+    return pixel_shift(imgs, output_size, dh, dw), dh, dw
 
 def no_aug(x):
     return x
-
 
 if __name__ == '__main__':
     import time 

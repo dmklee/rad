@@ -209,8 +209,7 @@ def main(args):
     env_name = args.domain_name + '-' + args.task_name
     # exp_name = env_name + '-' + ts + '-im' + str(args.image_size) +'-b'  \
     # + str(args.batch_size) + '-s' + str(args.seed)  + '-' + args.encoder_type
-    exp_name = f"{env_name}-{ts}-s{args.seed}-{args.encoder_type}"
-    exp_name += f"-{'withDA' if args.data_augs != '' else 'withoutDA'}"
+    exp_name = f"{env_name}-s{args.seed}-{args.agent}-{args.encoder_type}-{args.num_train_steps/1000}k"
     args.work_dir = args.work_dir + '/'  + exp_name
 
     utils.make_dir(args.work_dir)

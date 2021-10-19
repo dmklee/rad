@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from antialiased_cnns import BlurPool
 
 
 def tie_weights(src, trg):
@@ -103,6 +104,51 @@ class PixelEncoder(nn.Module):
         L.log_param('train_encoder/fc', self.fc, step)
         L.log_param('train_encoder/ln', self.ln, step)
 
+class AntiAliasedPixelEncoder(PixelEncoder):
+    def __init__(self, obs_shape, feature_dim, num_layers=2, num_filters=32,output_logits=False):
+        super().__init__()
+
+        assert len(obs_shape) == 3
+        self.obs_shape = obs_shape
+        self.feature_dim = feature_dim
+        self.num_layers = num_layers
+        self.convs = nn.ModuleList(
+            [nn.Conv2d(obs_shape[0], num_filters, 3, stride=1)]
+        )
+        for i in range(num_layers - 1):
+            self.convs.append(nn.Conv2d(num_filters, num_filters, 3, stride=1))
+        self.blurpool = BlurPool(num_filters, stride=2)
+
+        if obs_shape[-1] == 108:
+            assert num_layers in OUT_DIM_108
+            out_dim = OUT_DIM_108[num_layers]
+        elif obs_shape[-1] == 64:
+            out_dim = OUT_DIM_64[num_layers]
+        else:
+            out_dim = OUT_DIM[num_layers]
+
+        self.fc = nn.Linear(num_filters * out_dim * out_dim, self.feature_dim)
+        self.ln = nn.LayerNorm(self.feature_dim)
+
+        self.outputs = dict()
+        self.output_logits = output_logits
+
+    def forward_conv(self, obs):
+        if obs.max() > 1.:
+            obs = obs / 255.
+
+        self.outputs['obs'] = obs
+
+        conv = torch.relu(self.blurpool(self.convs[0](obs)))
+        self.outputs['conv1'] = conv
+
+        for i in range(1, self.num_layers):
+            conv = torch.relu(self.convs[i](conv))
+            self.outputs['conv%s' % (i + 1)] = conv
+
+        h = conv.view(conv.size(0), -1)
+        return h
+
 
 class IdentityEncoder(nn.Module):
     def __init__(self, obs_shape, feature_dim, num_layers, num_filters,*args):
@@ -121,8 +167,9 @@ class IdentityEncoder(nn.Module):
         pass
 
 
-_AVAILABLE_ENCODERS = {'pixel': PixelEncoder, 'identity': IdentityEncoder}
-
+_AVAILABLE_ENCODERS = {'pixel': PixelEncoder,
+                       'pixel_aa': AntiAliasedPixelEncoder,
+                       'identity': IdentityEncoder}
 
 def make_encoder(
     encoder_type, obs_shape, feature_dim, num_layers, num_filters, output_logits=False

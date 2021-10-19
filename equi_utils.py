@@ -4,7 +4,6 @@ import torch
 import json
 import numpy as np
 import torch.nn as nn
-import torchextractor as tx
 import dmc2gym
 
 import utils
@@ -50,41 +49,39 @@ def _eval_model(model, imgs, shift_range, n_augs=8):
     '''
     # create extractor for recording intermediate feature maps
     device = next(model.parameters()).device
-    inv_module_names = extract_module_names(model, 'inv')
-    equiv_module_names = extract_module_names(model, 'equiv')
-    tx_model = tx.Extractor(model, inv_module_names)
 
     # generate inputs
     raw_x = torch.tensor(imgs, device=device).repeat(n_augs, 1,1,1)
     dhw = _sample_pixel_shifts(raw_x.size(0), *shift_range).to(device)
     shifted_x = shift2d(raw_x, dhw)
+    obs_size = model.obs_shape[-1]
+    raw_x = utils.center_crop_images(raw_x, obs_size)
+    shifted_x = utils.center_crop_images(shifted_x, obs_size)
 
     # raw fmaps
-    _, raw_fmaps = tx_model(raw_x)
-    raw_fmaps = {name : f.clone().cpu() for name, f in raw_fmaps.items()}
+    model(raw_x)
+    raw_fmaps = {name : f.clone().cpu() for name, f in model.outputs.items() if name!='obs'}
 
     # shifted fmaps
-    _, shifted_fmaps = tx_model(shifted_x)
-    shifted_fmaps = {name : f.clone().cpu() for name, f in shifted_fmaps.items()}
+    model(shifted_x)
+    shifted_fmaps = {name : f.clone().cpu() for name, f in model.outputs.items() if name!='obs'}
 
     # deshifted fmaps
     dhw = dhw.cpu()
     deshifted_fmaps = {}
-    ds_factor = 1
-    border_size = {name : shift_range[1] for name in equiv_module_names}
-    for name in equiv_module_names:
-        a,b = name.split('.')
-        ds_factor *= model._modules[a][int(b)].stride[0]
-        border_size[name] *= ds_factor
-        deshifted_fmaps[name] = shift2d(shifted_fmaps[name], -dhw/ds_factor)
+    ds_factor = 2
+    border_size = ds_factor*shift_range[1]
+    for name in raw_fmaps.keys():
+        if 'conv' in name:
+            deshifted_fmaps[name] = shift2d(shifted_fmaps[name], -dhw/ds_factor)
 
     # now calculate equivariance and/or invariance
     results = {'inv' : dict(), 'equiv' : dict()}
-    for name in inv_module_names:
+    for name in raw_fmaps.keys():
         raw = raw_fmaps[name]
         shifted = shifted_fmaps[name]
-        if name in equiv_module_names:
-            output_size = int(raw.shape[-1] - 2*border_size[name])
+        if 'conv' in name:
+            output_size = int(raw.shape[-1] - 2*border_size)
             raw = utils.center_crop_images(raw, output_size)
             shifted = utils.center_crop_images(shifted, output_size)
             deshifted = utils.center_crop_images(deshifted_fmaps[name], output_size)
@@ -155,7 +152,6 @@ def collect_observations(env, agent, n_obs, policy_type):
 
         with utils.eval_mode(agent):
             if policy_type == 'optimal':
-                print(obs.shape, agent.image_size)
                 action = agent.select_action(utils.center_crop_image(obs, agent.image_size) / 255.)
             elif policy_type == 'sampled':
                 action = agent.sample_action(obs / 255.)
@@ -215,5 +211,5 @@ if __name__ == "__main__":
     parent_dir = 'results'
     folders = [os.path.join(parent_dir, p) for p in next(os.walk(parent_dir))[1]]
     for f in folders:
-        if f.count('reacher') and f.count('without')<0:
-            evaluate_models(f)
+        print(f)
+        evaluate_models(f)
