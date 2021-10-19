@@ -40,17 +40,12 @@ def functional_shift(dhw):
         return shift2d(x, dhw)
     return thunk
 
-def _sample_pixel_shifts(N, min_shift, max_shift, subpixel=False):
-    if max_shift == 0:
-        dhw = torch.zeros((N,2), dtype=torch.float32)
-    elif subpixel:
-        dhw = min_shift + (max_shift-min_shift) * torch.rand(size=(N,2))
-    else:
-        dhw = torch.randint(min_shift, max_shift+1, size=(N,2))
+def _sample_pixel_shifts(N, min_shift, max_shift):
+    dhw = min_shift + (max_shift-min_shift) * torch.rand(size=(N,2))
 
     return dhw
 
-def _eval_model(model, imgs, aug_params, n_augs=8):
+def _eval_model(model, imgs, shift_range, n_augs=8):
     '''evaluates the invaraince of a model at every feature map
     '''
     # create extractor for recording intermediate feature maps
@@ -61,7 +56,7 @@ def _eval_model(model, imgs, aug_params, n_augs=8):
 
     # generate inputs
     raw_x = torch.tensor(imgs, device=device).repeat(n_augs, 1,1,1)
-    dhw = _sample_pixel_shifts(raw_x.size(0), **aug_params).to(device)
+    dhw = _sample_pixel_shifts(raw_x.size(0), *shift_range).to(device)
     shifted_x = shift2d(raw_x, dhw)
 
     # raw fmaps
@@ -76,7 +71,7 @@ def _eval_model(model, imgs, aug_params, n_augs=8):
     dhw = dhw.cpu()
     deshifted_fmaps = {}
     ds_factor = 1
-    border_size = {name : aug_params['max_shift'] for name in equiv_module_names}
+    border_size = {name : shift_range[1] for name in equiv_module_names}
     for name in equiv_module_names:
         a,b = name.split('.')
         ds_factor *= model._modules[a][int(b)].stride[0]
@@ -198,21 +193,14 @@ def evaluate_models(results_folder, n_samples=128, n_augs=8, policy_type='optima
     results = {}
     network_names = ['actor', 'critic']
 
-    data_aug_params = [
-        {'min_shift': 0,'max_shift': 0,'subpixel':False}, #sanity check
-        {'min_shift': 0,'max_shift': 2,'subpixel':True},
-        {'min_shift': 1,'max_shift': 3,'subpixel':False},
-        {'min_shift': 4,'max_shift': 6,'subpixel':False},
-        # {'min_shift': 7,'max_shift': 9,'subpixel':False}
-                      ]
+    data_aug_params = [(0,2),(1,4),(4,6)]
     for network_name in network_names:
         results[network_name] = dict()
         network = agent.actor.encoder if network_name == 'actor' else agent.critic.encoder
 
         for params in data_aug_params:
-            key = (params['min_shift'], params['max_shift'], params['subpixel'])
             with torch.no_grad():
-                results[network_name][key] = _eval_model(network, obss, params, n_augs)
+                results[network_name][params] = _eval_model(network, obss, params, n_augs)
 
     # metadata
     results['n_samples'] = n_samples
