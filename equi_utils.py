@@ -108,18 +108,18 @@ def load_from_results(results_folder):
         task_name=args.task_name,
         seed=args.seed,
         visualize_reward=False,
-        from_pixels=(args.encoder_type == 'pixel'),
+        from_pixels=(args.encoder_type.find('pixel') > -1),
         height=pre_transform_image_size,
         width=pre_transform_image_size,
         frame_skip=args.action_repeat
     )
 
-    if args.encoder_type == 'pixel':
+    if args.encoder_type.find('pixel') > -1:
         env = utils.FrameStack(env, k=args.frame_stack)
 
     action_shape = env.action_space.shape
 
-    if args.encoder_type == 'pixel':
+    if args.encoder_type.find('pixel') > -1:
         obs_shape = (3*args.frame_stack, args.image_size, args.image_size)
         pre_aug_obs_shape = (3*args.frame_stack,
                              pre_transform_image_size,
@@ -212,4 +212,7 @@ if __name__ == "__main__":
     folders = [os.path.join(parent_dir, p) for p in next(os.walk(parent_dir))[1]]
     for f in folders:
         print(f)
-        evaluate_models(f)
+        try:
+            evaluate_models(f)
+        except FileNotFoundError:
+            pass

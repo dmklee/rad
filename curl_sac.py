@@ -512,9 +512,9 @@ class RadSacAgent(object):
 
     def load(self, model_dir, step):
         self.actor.load_state_dict(
-            torch.load('%s/actor_%s.pt' % (model_dir, step))
+            torch.load('%s/actor_%s.pt' % (model_dir, step), map_location=self.device)
         )
         self.critic.load_state_dict(
-            torch.load('%s/critic_%s.pt' % (model_dir, step))
+            torch.load('%s/critic_%s.pt' % (model_dir, step), map_location=self.device)
         )
  

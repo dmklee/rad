@@ -93,9 +93,9 @@ def evaluate(env, agent, video, num_episodes, L, step, args):
             episode_reward = 0
             while not done:
                 # center crop image
-                if args.encoder_type == 'pixel' and 'crop' in args.data_augs:
+                if args.encoder_type.find('pixel')>=0 and 'crop' in args.data_augs:
                     obs = utils.center_crop_image(obs,args.image_size)
-                if args.encoder_type == 'pixel' and 'translate' in args.data_augs:
+                if args.encoder_type.find('pixel')>=0 and 'translate' in args.data_augs:
                     # first crop the center with pre_image_size
                     obs = utils.center_crop_image(obs, args.pre_transform_image_size)
                     # then translate cropped to center
@@ -191,7 +191,7 @@ def main(args):
         task_name=args.task_name,
         seed=args.seed,
         visualize_reward=False,
-        from_pixels=(args.encoder_type == 'pixel'),
+        from_pixels=(args.encoder_type.find('pixel')>=0),
         height=pre_transform_image_size,
         width=pre_transform_image_size,
         frame_skip=args.action_repeat
@@ -200,7 +200,7 @@ def main(args):
     env.seed(args.seed)
 
     # stack several consecutive frames together
-    if args.encoder_type == 'pixel':
+    if args.encoder_type.find('pixel')>=0:
         env = utils.FrameStack(env, k=args.frame_stack)
     
     # make directory
@@ -209,7 +209,7 @@ def main(args):
     env_name = args.domain_name + '-' + args.task_name
     # exp_name = env_name + '-' + ts + '-im' + str(args.image_size) +'-b'  \
     # + str(args.batch_size) + '-s' + str(args.seed)  + '-' + args.encoder_type
-    exp_name = f"{env_name}-s{args.seed}-{args.agent}-{args.encoder_type}-{args.num_train_steps/1000}k"
+    exp_name = f"{env_name}-s{args.seed}-{args.agent}-{args.encoder_type}-{int(args.num_train_steps/1000)}k"
     args.work_dir = args.work_dir + '/'  + exp_name
 
     utils.make_dir(args.work_dir)
@@ -226,7 +226,7 @@ def main(args):
 
     action_shape = env.action_space.shape
 
-    if args.encoder_type == 'pixel':
+    if args.encoder_type.find('pixel')>=0:
         obs_shape = (3*args.frame_stack, args.image_size, args.image_size)
         pre_aug_obs_shape = (3*args.frame_stack,pre_transform_image_size,pre_transform_image_size)
     else:
