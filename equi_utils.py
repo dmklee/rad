@@ -7,12 +7,6 @@ import torch.nn as nn
 import dmc2gym
 
 import utils
-from train import make_agent
-
-def cosine_distance(x, y):
-    cosine_sim = nn.CosineSimilarity()(x.reshape(x.size(0),-1),
-                                       y.reshape(y.size(0),-1))
-    return 1 - cosine_sim
 
 def shift2d(x, dhw):
     '''
@@ -39,10 +33,15 @@ def functional_shift(dhw):
         return shift2d(x, dhw)
     return thunk
 
-def _sample_pixel_shifts(N, min_shift, max_shift):
+def sample_pixel_shifts(N, min_shift, max_shift):
     dhw = min_shift + (max_shift-min_shift) * torch.rand(size=(N,2))
-
     return dhw
+
+def cosine_distance(x, y):
+    cosine_sim = nn.CosineSimilarity()(x.reshape(x.size(0),-1),
+                                       y.reshape(y.size(0),-1))
+    return 1 - cosine_sim
+
 
 def _eval_model(model, imgs, shift_range, n_augs=8):
     '''evaluates the invaraince of a model at every feature map
@@ -52,8 +51,9 @@ def _eval_model(model, imgs, shift_range, n_augs=8):
 
     # generate inputs
     raw_x = torch.tensor(imgs, device=device).repeat(n_augs, 1,1,1)
-    dhw = _sample_pixel_shifts(raw_x.size(0), *shift_range).to(device)
+    dhw = sample_pixel_shifts(raw_x.size(0), *shift_range).to(device)
     shifted_x = shift2d(raw_x, dhw)
+
     obs_size = model.obs_shape[-1]
     raw_x = utils.center_crop_images(raw_x, obs_size)
     shifted_x = utils.center_crop_images(shifted_x, obs_size)
@@ -208,9 +208,13 @@ def evaluate_models(results_folder, n_samples=128, n_augs=8, policy_type='optima
     return results
 
 if __name__ == "__main__":
+    from train import make_agent
     parent_dir = 'results'
     folders = [os.path.join(parent_dir, p) for p in next(os.walk(parent_dir))[1]]
     for f in folders:
+        # dont reevaluate
+        if os.path.exists(f"{f}/shiftability_data.npy"):
+            continue
         print(f)
         try:
             evaluate_models(f)

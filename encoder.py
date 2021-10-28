@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from antialiased_cnns import BlurPool
 
+from equi_utils import shift2d, sample_pixel_shifts
 
 def tie_weights(src, trg):
     assert type(src) == type(trg)
@@ -15,7 +16,14 @@ OUT_DIM_108 = {4: 47}
 
 class PixelEncoder(nn.Module):
     """Convolutional encoder of pixels observations."""
-    def __init__(self, obs_shape, feature_dim, num_layers=2, num_filters=32,output_logits=False):
+    def __init__(self,
+                 obs_shape,
+                 fmap_shifts,
+                 feature_dim,
+                 num_layers=2,
+                 num_filters=32,
+                 output_logits=False,
+                ):
         super().__init__()
 
         assert len(obs_shape) == 3
@@ -28,6 +36,13 @@ class PixelEncoder(nn.Module):
         )
         for i in range(num_layers - 1):
             self.convs.append(nn.Conv2d(num_filters, num_filters, 3, stride=1))
+
+        self.fmap_shifts = [None for _ in range(num_layers)]
+        if fmap_shifts != '':
+            for i, a in enumerate(fmap_shifts.split(':')):
+                if a != '':
+                    a = float(a)
+                    self.fmap_shifts[i] = a
 
         if obs_shape[-1] == 108:
             assert num_layers in OUT_DIM_108
@@ -48,7 +63,7 @@ class PixelEncoder(nn.Module):
         eps = torch.randn_like(std)
         return mu + eps * std
 
-    def forward_conv(self, obs):
+    def forward_conv(self, obs, sample_augs=False):
         if obs.max() > 1.:
             obs = obs / 255.
 
@@ -56,16 +71,26 @@ class PixelEncoder(nn.Module):
 
         conv = torch.relu(self.convs[0](obs))
         self.outputs['conv1'] = conv
+        if sample_augs and self.fmap_shifts[0] is not None:
+            dhw = sample_pixel_shifts(obs.size(0),
+                                      -self.fmap_shifts[0],
+                                      self.fmap_shifts[0]).to(conv.device)
+            conv = shift2d(conv, dhw)
 
         for i in range(1, self.num_layers):
             conv = torch.relu(self.convs[i](conv))
             self.outputs['conv%s' % (i + 1)] = conv
+            if sample_augs and self.fmap_shifts[i] is not None:
+                dhw = sample_pixel_shifts(obs.size(0),
+                                          -self.fmap_shifts[i],
+                                          self.fmap_shifts[i]).to(conv.device)
+                conv = shift2d(conv, dhw)
 
         h = conv.view(conv.size(0), -1)
         return h
 
-    def forward(self, obs, detach=False):
-        h = self.forward_conv(obs)
+    def forward(self, obs, detach=False, sample_augs=False):
+        h = self.forward_conv(obs, sample_augs)
 
         if detach:
             h = h.detach()
@@ -105,8 +130,11 @@ class PixelEncoder(nn.Module):
         L.log_param('train_encoder/ln', self.ln, step)
 
 class AntiAliasedPixelEncoder(PixelEncoder):
-    def __init__(self, obs_shape, feature_dim, num_layers=2, num_filters=32,output_logits=False):
+    def __init__(self, obs_shape, fmap_shifts, feature_dim, num_layers=2, num_filters=32,output_logits=False):
         super(PixelEncoder, self).__init__()
+
+        if fmap_shifts != '':
+            print('[WARNING]: internal data aug not supported for antialiased CNN')
 
         assert len(obs_shape) == 3
         self.obs_shape = obs_shape
@@ -133,13 +161,14 @@ class AntiAliasedPixelEncoder(PixelEncoder):
         self.outputs = dict()
         self.output_logits = output_logits
 
-    def forward_conv(self, obs):
+    def forward_conv(self, obs, sample_augs=False):
         if obs.max() > 1.:
             obs = obs / 255.
 
         self.outputs['obs'] = obs
 
-        conv = torch.relu(self.blurpool(self.convs[0](obs)))
+        # conv = torch.relu(self.blurpool(self.convs[0](obs)))
+        conv = self.blurpool(torch.relu(self.convs[0](obs)))
         self.outputs['conv1'] = conv
 
         for i in range(1, self.num_layers):
@@ -149,9 +178,8 @@ class AntiAliasedPixelEncoder(PixelEncoder):
         h = conv.view(conv.size(0), -1)
         return h
 
-
 class IdentityEncoder(nn.Module):
-    def __init__(self, obs_shape, feature_dim, num_layers, num_filters,*args):
+    def __init__(self, obs_shape, fmap_shifts, feature_dim, num_layers, num_filters,*args):
         super().__init__()
 
         assert len(obs_shape) == 1
@@ -172,9 +200,9 @@ _AVAILABLE_ENCODERS = {'pixel': PixelEncoder,
                        'identity': IdentityEncoder}
 
 def make_encoder(
-    encoder_type, obs_shape, feature_dim, num_layers, num_filters, output_logits=False
+    encoder_type, obs_shape, fmap_shifts, feature_dim, num_layers, num_filters, output_logits=False
 ):
     assert encoder_type in _AVAILABLE_ENCODERS
     return _AVAILABLE_ENCODERS[encoder_type](
-        obs_shape, feature_dim, num_layers, num_filters, output_logits
+        obs_shape, fmap_shifts, feature_dim, num_layers, num_filters, output_logits
     )

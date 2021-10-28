@@ -7,7 +7,7 @@ import math
 
 import utils
 from encoder import make_encoder
-import data_augs as rad 
+import data_augs as rad
 
 LOG_FREQ = 10000
 
@@ -48,13 +48,14 @@ def weight_init(m):
 class Actor(nn.Module):
     """MLP actor network."""
     def __init__(
-        self, obs_shape, action_shape, hidden_dim, encoder_type,
+        self, obs_shape, action_shape, hidden_dim, encoder_type, encoder_fmap_shifts,
         encoder_feature_dim, log_std_min, log_std_max, num_layers, num_filters
     ):
         super().__init__()
 
         self.encoder = make_encoder(
-            encoder_type, obs_shape, encoder_feature_dim, num_layers,
+            encoder_type, obs_shape, encoder_fmap_shifts,
+            encoder_feature_dim, num_layers,
             num_filters, output_logits=True
         )
 
@@ -71,9 +72,9 @@ class Actor(nn.Module):
         self.apply(weight_init)
 
     def forward(
-        self, obs, compute_pi=True, compute_log_pi=True, detach_encoder=False
+        self, obs, compute_pi=True, compute_log_pi=True, detach_encoder=False, sample_augs=False,
     ):
-        obs = self.encoder(obs, detach=detach_encoder)
+        obs = self.encoder(obs, detach=detach_encoder, sample_augs=sample_augs)
 
         mu, log_std = self.trunk(obs).chunk(2, dim=-1)
 
@@ -137,13 +138,14 @@ class Critic(nn.Module):
     """Critic network, employes two q-functions."""
     def __init__(
         self, obs_shape, action_shape, hidden_dim, encoder_type,
+        encoder_fmap_shifts,
         encoder_feature_dim, num_layers, num_filters
     ):
         super().__init__()
 
 
         self.encoder = make_encoder(
-            encoder_type, obs_shape, encoder_feature_dim, num_layers,
+            encoder_type, obs_shape, encoder_fmap_shifts, encoder_feature_dim, num_layers,
             num_filters, output_logits=True
         )
 
@@ -157,9 +159,9 @@ class Critic(nn.Module):
         self.outputs = dict()
         self.apply(weight_init)
 
-    def forward(self, obs, action, detach_encoder=False):
+    def forward(self, obs, action, detach_encoder=False, sample_augs=False):
         # detach_encoder allows to stop gradient propogation to encoder
-        obs = self.encoder(obs, detach=detach_encoder)
+        obs = self.encoder(obs, detach=detach_encoder, sample_augs=sample_augs)
 
         q1 = self.Q1(obs, action)
         q2 = self.Q2(obs, action)
@@ -253,6 +255,7 @@ class RadSacAgent(object):
         critic_tau=0.005,
         critic_target_update_freq=2,
         encoder_type='pixel',
+        encoder_fmap_shifts=':::',
         encoder_feature_dim=50,
         encoder_lr=1e-3,
         encoder_tau=0.005,
@@ -299,18 +302,18 @@ class RadSacAgent(object):
                 self.augs_funcs[aug_name] = aug_to_func[aug_name]
 
         self.actor = Actor(
-            obs_shape, action_shape, hidden_dim, encoder_type,
+            obs_shape, action_shape, hidden_dim, encoder_type, encoder_fmap_shifts,
             encoder_feature_dim, actor_log_std_min, actor_log_std_max,
             num_layers, num_filters
         ).to(device)
 
         self.critic = Critic(
-            obs_shape, action_shape, hidden_dim, encoder_type,
+            obs_shape, action_shape, hidden_dim, encoder_type, encoder_fmap_shifts,
             encoder_feature_dim, num_layers, num_filters
         ).to(device)
 
         self.critic_target = Critic(
-            obs_shape, action_shape, hidden_dim, encoder_type,
+            obs_shape, action_shape, hidden_dim, encoder_type, encoder_fmap_shifts,
             encoder_feature_dim, num_layers, num_filters
         ).to(device)
 
@@ -387,15 +390,15 @@ class RadSacAgent(object):
 
     def update_critic(self, obs, action, reward, next_obs, not_done, L, step):
         with torch.no_grad():
-            _, policy_action, log_pi, _ = self.actor(next_obs)
-            target_Q1, target_Q2 = self.critic_target(next_obs, policy_action)
+            _, policy_action, log_pi, _ = self.actor(next_obs, sample_augs=True)
+            target_Q1, target_Q2 = self.critic_target(next_obs, policy_action, sample_augs=True)
             target_V = torch.min(target_Q1,
                                  target_Q2) - self.alpha.detach() * log_pi
             target_Q = reward + (not_done * self.discount * target_V)
 
         # get current Q estimates
         current_Q1, current_Q2 = self.critic(
-            obs, action, detach_encoder=self.detach_encoder)
+            obs, action, detach_encoder=self.detach_encoder, sample_augs=True)
         critic_loss = F.mse_loss(current_Q1,
                                  target_Q) + F.mse_loss(current_Q2, target_Q)
         if step % self.log_interval == 0:
@@ -411,8 +414,8 @@ class RadSacAgent(object):
 
     def update_actor_and_alpha(self, obs, L, step):
         # detach encoder, so we don't update it with the actor loss
-        _, pi, log_pi, log_std = self.actor(obs, detach_encoder=True)
-        actor_Q1, actor_Q2 = self.critic(obs, pi, detach_encoder=True)
+        _, pi, log_pi, log_std = self.actor(obs, detach_encoder=True, sample_augs=True)
+        actor_Q1, actor_Q2 = self.critic(obs, pi, detach_encoder=True, sample_augs=True)
 
         actor_Q = torch.min(actor_Q1, actor_Q2)
         actor_loss = (self.alpha.detach() * log_pi - actor_Q).mean()

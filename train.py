@@ -53,6 +53,7 @@ def arg_parser():
     parser.add_argument('--actor_update_freq', default=2, type=int)
     # encoder
     parser.add_argument('--encoder_type', default='pixel', type=str)
+    parser.add_argument('--encoder_fmap_shifts', default='', type=str)
     parser.add_argument('--encoder_feature_dim', default=50, type=int)
     parser.add_argument('--encoder_lr', default=1e-3, type=float)
     parser.add_argument('--encoder_tau', default=0.05, type=float)
@@ -165,6 +166,7 @@ def make_agent(obs_shape, action_shape, args, device):
             critic_tau=args.critic_tau,
             critic_target_update_freq=args.critic_target_update_freq,
             encoder_type=args.encoder_type,
+            encoder_fmap_shifts=args.encoder_fmap_shifts,
             encoder_feature_dim=args.encoder_feature_dim,
             encoder_lr=args.encoder_lr,
             encoder_tau=args.encoder_tau,
@@ -209,7 +211,10 @@ def main(args):
     env_name = args.domain_name + '-' + args.task_name
     # exp_name = env_name + '-' + ts + '-im' + str(args.image_size) +'-b'  \
     # + str(args.batch_size) + '-s' + str(args.seed)  + '-' + args.encoder_type
-    exp_name = f"{env_name}-s{args.seed}-{args.agent}-{args.encoder_type}-{int(args.num_train_steps/1000)}k"
+    exp_name = f"{env_name}-s{args.seed}-{args.agent}-{args.encoder_type}"
+    if args.encoder_fmap_shifts != '':
+        exp_name += f"-intra{args.encoder_fmap_shifts}"
+    exp_name += f"-{int(args.num_train_steps/1000)}k"
     args.work_dir = args.work_dir + '/'  + exp_name
 
     utils.make_dir(args.work_dir)

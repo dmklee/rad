@@ -34,7 +34,7 @@ def run_experiment(**kwargs):
     dt = time.time() - t
     print(f"Completed in {datetime.timedelta(seconds=time.time()-t)}")
 
-def run_100k(agent, encoder_type, seeds, work_dir, envs):
+def run_100k(agent, encoder_type, encoder_fmap_shifts, seeds, work_dir, envs):
     for seed in seeds:
         for env in envs:
             domain, task = env
@@ -69,6 +69,7 @@ def run_100k(agent, encoder_type, seeds, work_dir, envs):
                            actor_log_std_max=2,
                            actor_update_freq=2,
                            encoder_type=encoder_type,
+                           encoder_fmap_shifts=encoder_fmap_shifts,
                            encoder_feature_dim=50,
                            encoder_lr=2e-4 if env==('cheetah','run') else 1e-3,
                            encoder_tau=0.05,
@@ -93,6 +94,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--agent', type=str, default='rad_sac') # pixel_sac
     parser.add_argument('--encoder-type', type=str, default='pixel') # pixel_aa
+    parser.add_argument('--fmap-shifts', type=str, default='')
     parser.add_argument('--envs', type=str, nargs='+', default=[])
     parser.add_argument('--seeds', type=int, nargs='+', default=[0])
     parser.add_argument('--work_dir', type=str, default='./results')
@@ -103,4 +105,5 @@ if __name__ == "__main__":
     else:
         envs = ENVS
 
-    run_100k(args.agent, args.encoder_type, args.seeds, args.work_dir, envs)
+    run_100k(args.agent, args.encoder_type, args.fmap_shifts,
+             args.seeds, args.work_dir, envs)
