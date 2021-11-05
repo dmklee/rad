@@ -57,6 +57,7 @@ def arg_parser():
     parser.add_argument('--encoder_feature_dim', default=50, type=int)
     parser.add_argument('--encoder_lr', default=1e-3, type=float)
     parser.add_argument('--encoder_tau', default=0.05, type=float)
+    parser.add_argument('--encoder_dropout', default=0., type=float)
     parser.add_argument('--num_layers', default=4, type=int)
     parser.add_argument('--num_filters', default=32, type=int)
     parser.add_argument('--latent_dim', default=128, type=int)
@@ -146,6 +147,13 @@ def evaluate(env, agent, video, num_episodes, L, step, args):
 
 
 def make_agent(obs_shape, action_shape, args, device):
+    if 'encoder_fmap_shifts' not in vars(args):
+        # backward compatibility
+        args.encoder_fmap_shifts = ''
+    if 'encoder_dropout' not in vars(args):
+        args.encoder_dropout = 0.
+
+
     if args.agent in ('rad_sac', 'pixel_sac'):
         return RadSacAgent(
             obs_shape=obs_shape,
@@ -167,6 +175,7 @@ def make_agent(obs_shape, action_shape, args, device):
             critic_target_update_freq=args.critic_target_update_freq,
             encoder_type=args.encoder_type,
             encoder_fmap_shifts=args.encoder_fmap_shifts,
+            encoder_dropout=args.encoder_dropout,
             encoder_feature_dim=args.encoder_feature_dim,
             encoder_lr=args.encoder_lr,
             encoder_tau=args.encoder_tau,
@@ -214,7 +223,10 @@ def main(args):
     exp_name = f"{env_name}-s{args.seed}-{args.agent}-{args.encoder_type}"
     if args.encoder_fmap_shifts != '':
         exp_name += f"-intra{args.encoder_fmap_shifts}"
+    if args.encoder_dropout > 1e-4:
+        exp_name += f"-dropout{args.encoder_dropout}"
     exp_name += f"-{int(args.num_train_steps/1000)}k"
+    print(exp_name)
     args.work_dir = args.work_dir + '/'  + exp_name
 
     utils.make_dir(args.work_dir)

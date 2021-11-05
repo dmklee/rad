@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from antialiased_cnns import BlurPool
 
-from equi_utils import shift2d, sample_pixel_shifts
+from equi_utils import affine2d
 
 def tie_weights(src, trg):
     assert type(src) == type(trg)
@@ -23,6 +23,7 @@ class PixelEncoder(nn.Module):
                  num_layers=2,
                  num_filters=32,
                  output_logits=False,
+                 dropout=0.,
                 ):
         super().__init__()
 
@@ -40,9 +41,14 @@ class PixelEncoder(nn.Module):
         self.fmap_shifts = [None for _ in range(num_layers)]
         if fmap_shifts != '':
             for i, a in enumerate(fmap_shifts.split(':')):
-                if a != '':
+                if a == '':
+                    continue
+                if ',' in a:
+                    t,r = [float(z) for z in a.split(',')]
+                    self.fmap_shifts[i] = (t, r)
+                else:
                     a = float(a)
-                    self.fmap_shifts[i] = a
+                    self.fmap_shifts[i] = (a, 0)
 
         if obs_shape[-1] == 108:
             assert num_layers in OUT_DIM_108
@@ -52,6 +58,10 @@ class PixelEncoder(nn.Module):
         else:
             out_dim = OUT_DIM[num_layers]
 
+        if dropout > 1e-4:
+            self.dropout = nn.Dropout(dropout)
+        else:
+            self.dropout = nn.Identity()
         self.fc = nn.Linear(num_filters * out_dim * out_dim, self.feature_dim)
         self.ln = nn.LayerNorm(self.feature_dim)
 
@@ -72,21 +82,20 @@ class PixelEncoder(nn.Module):
         conv = torch.relu(self.convs[0](obs))
         self.outputs['conv1'] = conv
         if sample_augs and self.fmap_shifts[0] is not None:
-            dhw = sample_pixel_shifts(obs.size(0),
-                                      -self.fmap_shifts[0],
-                                      self.fmap_shifts[0]).to(conv.device)
-            conv = shift2d(conv, dhw)
+            dhw = self.fmap_shifts[0][0] * (2*torch.rand(size=(obs.size(0), 2), device=obs.device)-1)
+            dth = self.fmap_shifts[0][1] * (2*torch.rand(size=(obs.size(0), 1), device=obs.device)-1)
+            conv = affine2d(conv, dhw, dth)
 
         for i in range(1, self.num_layers):
             conv = torch.relu(self.convs[i](conv))
             self.outputs['conv%s' % (i + 1)] = conv
             if sample_augs and self.fmap_shifts[i] is not None:
-                dhw = sample_pixel_shifts(obs.size(0),
-                                          -self.fmap_shifts[i],
-                                          self.fmap_shifts[i]).to(conv.device)
-                conv = shift2d(conv, dhw)
+                dhw = self.fmap_shifts[0][0] * (2*torch.rand(size=(obs.size(0), 2), device=obs.device)-1)
+                dth = self.fmap_shifts[0][1] * (2*torch.rand(size=(obs.size(0), 1), device=obs.device)-1)
+                conv = affine2d(conv, dhw, dth)
 
         h = conv.view(conv.size(0), -1)
+        h = self.dropout(h)
         return h
 
     def forward(self, obs, detach=False, sample_augs=False):
@@ -96,10 +105,10 @@ class PixelEncoder(nn.Module):
             h = h.detach()
 
         h_fc = self.fc(h)
-        self.outputs['fc'] = h_fc
+        self.outputs['fc0'] = h_fc
 
         h_norm = self.ln(h_fc)
-        self.outputs['ln'] = h_norm
+        self.outputs['ln0'] = h_norm
 
         if self.output_logits:
             out = h_norm
@@ -200,9 +209,9 @@ _AVAILABLE_ENCODERS = {'pixel': PixelEncoder,
                        'identity': IdentityEncoder}
 
 def make_encoder(
-    encoder_type, obs_shape, fmap_shifts, feature_dim, num_layers, num_filters, output_logits=False
+    encoder_type, obs_shape, fmap_shifts, feature_dim, num_layers, num_filters, output_logits=False, dropout=0.,
 ):
     assert encoder_type in _AVAILABLE_ENCODERS
     return _AVAILABLE_ENCODERS[encoder_type](
-        obs_shape, fmap_shifts, feature_dim, num_layers, num_filters, output_logits
+        obs_shape, fmap_shifts, feature_dim, num_layers, num_filters, output_logits, dropout,
     )

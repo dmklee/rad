@@ -49,14 +49,14 @@ class Actor(nn.Module):
     """MLP actor network."""
     def __init__(
         self, obs_shape, action_shape, hidden_dim, encoder_type, encoder_fmap_shifts,
-        encoder_feature_dim, log_std_min, log_std_max, num_layers, num_filters
+        encoder_feature_dim, encoder_dropout, log_std_min, log_std_max, num_layers, num_filters
     ):
         super().__init__()
 
         self.encoder = make_encoder(
             encoder_type, obs_shape, encoder_fmap_shifts,
             encoder_feature_dim, num_layers,
-            num_filters, output_logits=True
+            num_filters, output_logits=True, dropout=encoder_dropout
         )
 
         self.log_std_min = log_std_min
@@ -69,6 +69,9 @@ class Actor(nn.Module):
         )
 
         self.outputs = dict()
+        self.reset_weights()
+
+    def reset_weights(self):
         self.apply(weight_init)
 
     def forward(
@@ -76,7 +79,11 @@ class Actor(nn.Module):
     ):
         obs = self.encoder(obs, detach=detach_encoder, sample_augs=sample_augs)
 
-        mu, log_std = self.trunk(obs).chunk(2, dim=-1)
+        obs = self.trunk[1](self.trunk[0](obs))
+        self.outputs['fc1'] = obs
+        obs = self.trunk[3](self.trunk[2](obs))
+        self.outputs['fc2'] = obs
+        mu, log_std = self.trunk[4](obs).chunk(2, dim=-1)
 
         # constrain log_std inside [log_std_min, log_std_max]
         log_std = torch.tanh(log_std)
@@ -137,16 +144,15 @@ class QFunction(nn.Module):
 class Critic(nn.Module):
     """Critic network, employes two q-functions."""
     def __init__(
-        self, obs_shape, action_shape, hidden_dim, encoder_type,
-        encoder_fmap_shifts,
-        encoder_feature_dim, num_layers, num_filters
+        self, obs_shape, action_shape, hidden_dim, encoder_type, encoder_fmap_shifts,
+        encoder_feature_dim, encoder_dropout, num_layers, num_filters
     ):
         super().__init__()
 
 
         self.encoder = make_encoder(
             encoder_type, obs_shape, encoder_fmap_shifts, encoder_feature_dim, num_layers,
-            num_filters, output_logits=True
+            num_filters, output_logits=True, dropout=encoder_dropout,
         )
 
         self.Q1 = QFunction(
@@ -157,6 +163,9 @@ class Critic(nn.Module):
         )
 
         self.outputs = dict()
+        self.reset_weights()
+
+    def reset_weights(self):
         self.apply(weight_init)
 
     def forward(self, obs, action, detach_encoder=False, sample_augs=False):
@@ -256,6 +265,7 @@ class RadSacAgent(object):
         critic_target_update_freq=2,
         encoder_type='pixel',
         encoder_fmap_shifts=':::',
+        encoder_dropout=0.,
         encoder_feature_dim=50,
         encoder_lr=1e-3,
         encoder_tau=0.005,
@@ -303,18 +313,18 @@ class RadSacAgent(object):
 
         self.actor = Actor(
             obs_shape, action_shape, hidden_dim, encoder_type, encoder_fmap_shifts,
-            encoder_feature_dim, actor_log_std_min, actor_log_std_max,
+            encoder_feature_dim, encoder_dropout, actor_log_std_min, actor_log_std_max,
             num_layers, num_filters
         ).to(device)
 
         self.critic = Critic(
             obs_shape, action_shape, hidden_dim, encoder_type, encoder_fmap_shifts,
-            encoder_feature_dim, num_layers, num_filters
+            encoder_feature_dim, encoder_dropout, num_layers, num_filters
         ).to(device)
 
         self.critic_target = Critic(
             obs_shape, action_shape, hidden_dim, encoder_type, encoder_fmap_shifts,
-            encoder_feature_dim, num_layers, num_filters
+            encoder_feature_dim, encoder_dropout, num_layers, num_filters
         ).to(device)
 
         self.critic_target.load_state_dict(self.critic.state_dict())
