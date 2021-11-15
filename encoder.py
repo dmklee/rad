@@ -55,8 +55,6 @@ class PixelEncoder(nn.Module):
                 if a != '':
                     self.fmap_dropouts[i] = nn.Dropout2d(float(a))
 
-        print(self.fmap_dropouts)
-
         if obs_shape[-1] == 108:
             assert num_layers in OUT_DIM_108
             out_dim = OUT_DIM_108[num_layers]

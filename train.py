@@ -35,6 +35,7 @@ def arg_parser():
     parser.add_argument('--agent', default='rad_sac', type=str)
     parser.add_argument('--init_steps', default=1000, type=int)
     parser.add_argument('--num_train_steps', default=1000000, type=int)
+    parser.add_argument('--num_updates_per_env_step', default=1, type=int)
     parser.add_argument('--batch_size', default=32, type=int)
     parser.add_argument('--hidden_dim', default=1024, type=int)
     # eval
@@ -221,6 +222,7 @@ def main(args):
     # exp_name = env_name + '-' + ts + '-im' + str(args.image_size) +'-b'  \
     # + str(args.batch_size) + '-s' + str(args.seed)  + '-' + args.encoder_type
     exp_name = f"{env_name}-s{args.seed}-{args.agent}-{args.encoder_type}"
+    exp_name += f"-{args.num_updates_per_env_step}updates"
     if args.encoder_fmap_shifts != '':
         exp_name += f"-intra{args.encoder_fmap_shifts}"
     if args.encoder_dropout != '':
@@ -273,6 +275,7 @@ def main(args):
     episode, episode_reward, done = 0, 0, True
     start_time = time.time()
 
+    update_step = 0
     for step in range(args.num_train_steps+1):
         # evaluate agent periodically
 
@@ -311,9 +314,9 @@ def main(args):
 
         # run training update
         if step >= args.init_steps:
-            num_updates = 1 
-            for _ in range(num_updates):
-                agent.update(replay_buffer, L, step)
+            for _ in range(args.num_updates_per_env_step):
+                agent.update(replay_buffer, L, update_step)
+                update_step += 1
 
         next_obs, reward, done, _ = env.step(action)
 

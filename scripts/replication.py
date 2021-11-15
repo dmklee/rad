@@ -34,7 +34,8 @@ def run_experiment(**kwargs):
     dt = time.time() - t
     print(f"Completed in {datetime.timedelta(seconds=time.time()-t)}")
 
-def run_100k(agent, encoder_type, encoder_fmap_shifts, dropout, seeds, work_dir, envs):
+def run(num_train_steps, agent, encoder_type, encoder_fmap_shifts, dropout, seeds, work_dir, envs,
+            num_updates_per_env_step):
     for seed in seeds:
         for env in envs:
             domain, task = env
@@ -54,7 +55,8 @@ def run_100k(agent, encoder_type, encoder_fmap_shifts, dropout, seeds, work_dir,
                            replay_buffer_capacity=100000,
                            agent=agent,
                            init_steps=1000,
-                           num_train_steps=100000,
+                           num_train_steps=num_train_steps,
+                           num_updates_per_env_step=num_updates_per_env_step,
                            batch_size=512,
                            hidden_dim=1024,
                            eval_freq=10000,
@@ -97,6 +99,8 @@ if __name__ == "__main__":
     parser.add_argument('--encoder-type', type=str, default='pixel') # pixel_aa
     parser.add_argument('--fmap-shifts', type=str, default='')
     parser.add_argument('--dropout', type=str, default='')
+    parser.add_argument('--num-train-steps', type=int, default=100000)
+    parser.add_argument('--num-updates-per-env-step', type=int, default=1)
     parser.add_argument('--envs', type=str, nargs='+', default=[])
     parser.add_argument('--seeds', type=int, nargs='+', default=[0])
     parser.add_argument('--work-dir', type=str, default='./results')
@@ -107,5 +111,5 @@ if __name__ == "__main__":
     else:
         envs = ENVS
 
-    run_100k(args.agent, args.encoder_type, args.fmap_shifts, args.dropout,
-             args.seeds, args.work_dir, envs)
+    run(args.num_train_steps, args.agent, args.encoder_type, args.fmap_shifts, args.dropout,
+             args.seeds, args.work_dir, envs, args.num_updates_per_env_step)
