@@ -23,7 +23,7 @@ class PixelEncoder(nn.Module):
                  num_layers=2,
                  num_filters=32,
                  output_logits=False,
-                 dropout=0.,
+                 dropout='',
                 ):
         super().__init__()
 
@@ -49,6 +49,13 @@ class PixelEncoder(nn.Module):
                 else:
                     a = float(a)
                     self.fmap_shifts[i] = (a, 0)
+        self.fmap_dropouts = [None for _ in range(num_layers)]
+        if dropout != '':
+            for i,a in enumerate(dropout.split(':')):
+                if a != '':
+                    self.fmap_dropouts[i] = nn.Dropout2d(float(a))
+
+        print(self.fmap_dropouts)
 
         if obs_shape[-1] == 108:
             assert num_layers in OUT_DIM_108
@@ -58,10 +65,6 @@ class PixelEncoder(nn.Module):
         else:
             out_dim = OUT_DIM[num_layers]
 
-        if dropout > 1e-4:
-            self.dropout = nn.Dropout(dropout)
-        else:
-            self.dropout = nn.Identity()
         self.fc = nn.Linear(num_filters * out_dim * out_dim, self.feature_dim)
         self.ln = nn.LayerNorm(self.feature_dim)
 
@@ -85,6 +88,8 @@ class PixelEncoder(nn.Module):
             dhw = self.fmap_shifts[0][0] * (2*torch.rand(size=(obs.size(0), 2), device=obs.device)-1)
             dth = self.fmap_shifts[0][1] * (2*torch.rand(size=(obs.size(0), 1), device=obs.device)-1)
             conv = affine2d(conv, dhw, dth)
+        if sample_augs and self.fmap_dropouts[0] is not None:
+            conv = self.fmap_dropouts[0](conv)
 
         for i in range(1, self.num_layers):
             conv = torch.relu(self.convs[i](conv))
@@ -93,9 +98,10 @@ class PixelEncoder(nn.Module):
                 dhw = self.fmap_shifts[0][0] * (2*torch.rand(size=(obs.size(0), 2), device=obs.device)-1)
                 dth = self.fmap_shifts[0][1] * (2*torch.rand(size=(obs.size(0), 1), device=obs.device)-1)
                 conv = affine2d(conv, dhw, dth)
+            if sample_augs and self.fmap_dropouts[i] is not None:
+                conv = self.fmap_dropouts[i](conv)
 
         h = conv.view(conv.size(0), -1)
-        h = self.dropout(h)
         return h
 
     def forward(self, obs, detach=False, sample_augs=False):

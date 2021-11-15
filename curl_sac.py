@@ -265,7 +265,7 @@ class RadSacAgent(object):
         critic_target_update_freq=2,
         encoder_type='pixel',
         encoder_fmap_shifts=':::',
-        encoder_dropout=0.,
+        encoder_dropout='',
         encoder_feature_dim=50,
         encoder_lr=1e-3,
         encoder_tau=0.005,

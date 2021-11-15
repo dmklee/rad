@@ -96,10 +96,10 @@ if __name__ == "__main__":
     parser.add_argument('--agent', type=str, default='rad_sac') # pixel_sac
     parser.add_argument('--encoder-type', type=str, default='pixel') # pixel_aa
     parser.add_argument('--fmap-shifts', type=str, default='')
-    parser.add_argument('--dropout', type=float, default=0.)
+    parser.add_argument('--dropout', type=str, default='')
     parser.add_argument('--envs', type=str, nargs='+', default=[])
     parser.add_argument('--seeds', type=int, nargs='+', default=[0])
-    parser.add_argument('--work_dir', type=str, default='./results')
+    parser.add_argument('--work-dir', type=str, default='./results')
     args = parser.parse_args()
 
     if len(args.envs):
