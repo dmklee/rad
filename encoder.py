@@ -95,8 +95,8 @@ class PixelEncoder(nn.Module):
             conv = torch.relu(self.convs[i](conv))
             self.outputs['conv%s' % (i + 1)] = conv
             if sample_augs and self.fmap_shifts[i] is not None:
-                dhw = self.fmap_shifts[0][0] * (2*torch.rand(size=(obs.size(0), 2), device=obs.device)-1)
-                dth = self.fmap_shifts[0][1] * (2*torch.rand(size=(obs.size(0), 1), device=obs.device)-1)
+                dhw = self.fmap_shifts[i][0] * (2*torch.rand(size=(obs.size(0), 2), device=obs.device)-1)
+                dth = self.fmap_shifts[i][1] * (2*torch.rand(size=(obs.size(0), 1), device=obs.device)-1)
                 conv = affine2d(conv, dhw, dth)
             if sample_augs and self.fmap_dropouts[i] is not None:
                 conv = self.fmap_dropouts[i](conv)
