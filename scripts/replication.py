@@ -34,8 +34,9 @@ def run_experiment(**kwargs):
     dt = time.time() - t
     print(f"Completed in {datetime.timedelta(seconds=time.time()-t)}")
 
-def run(num_train_steps, agent, encoder_type, encoder_fmap_shifts, dropout, seeds, work_dir, envs,
-            num_updates_per_env_step):
+def run(num_train_steps, agent, encoder_type, encoder_num_layers,
+        encoder_fmap_shifts, encoder_fc_aug, dropout, seeds,
+        work_dir, envs, num_updates_per_env_step):
     for seed in seeds:
         for env in envs:
             domain, task = env
@@ -72,11 +73,12 @@ def run(num_train_steps, agent, encoder_type, encoder_fmap_shifts, dropout, seed
                            actor_update_freq=2,
                            encoder_type=encoder_type,
                            encoder_fmap_shifts=encoder_fmap_shifts,
+                           encoder_fc_aug=encoder_fc_aug,
                            encoder_feature_dim=50,
                            encoder_lr=2e-4 if env==('cheetah','run') else 1e-3,
                            encoder_tau=0.05,
                            encoder_dropout=dropout,
-                           num_layers=4,
+                           num_layers=encoder_num_layers,
                            num_filters=32,
                            latent_dim=50,
                            discount=0.99,
@@ -97,7 +99,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--agent', type=str, default='rad_sac') # pixel_sac
     parser.add_argument('--encoder-type', type=str, default='pixel') # pixel_aa
+    parser.add_argument('--num-layers', type=int, default=4) # pixel_aa
     parser.add_argument('--fmap-shifts', type=str, default='')
+    parser.add_argument('--fc-aug', type=str, default='')
     parser.add_argument('--dropout', type=str, default='')
     parser.add_argument('--num-train-steps', type=int, default=100000)
     parser.add_argument('--num-updates-per-env-step', type=int, default=1)
@@ -111,5 +115,6 @@ if __name__ == "__main__":
     else:
         envs = ENVS
 
-    run(args.num_train_steps, args.agent, args.encoder_type, args.fmap_shifts, args.dropout,
-             args.seeds, args.work_dir, envs, args.num_updates_per_env_step)
+    run(args.num_train_steps, args.agent, args.encoder_type, args.num_layers,
+        args.fmap_shifts, args.fc_aug, args.dropout, args.seeds,
+        args.work_dir, envs, args.num_updates_per_env_step)

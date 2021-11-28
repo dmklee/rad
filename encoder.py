@@ -10,7 +10,7 @@ def tie_weights(src, trg):
     trg.bias = src.bias
 
 
-OUT_DIM = {2: 39, 4: 35, 6: 31}
+OUT_DIM = {2: 39, 4: 35, 5: 33, 6: 31}
 OUT_DIM_64 = {2: 29, 4: 25, 6: 21}
 OUT_DIM_108 = {4: 47}
 
@@ -19,6 +19,7 @@ class PixelEncoder(nn.Module):
     def __init__(self,
                  obs_shape,
                  fmap_shifts,
+                 fc_aug,
                  feature_dim,
                  num_layers=2,
                  num_filters=32,
@@ -63,11 +64,13 @@ class PixelEncoder(nn.Module):
         else:
             out_dim = OUT_DIM[num_layers]
 
+        self.fc_aug = None
         self.fc = nn.Linear(num_filters * out_dim * out_dim, self.feature_dim)
         self.ln = nn.LayerNorm(self.feature_dim)
 
         self.outputs = dict()
         self.output_logits = output_logits
+        print(self)
 
     def reparameterize(self, mu, logstd):
         std = torch.exp(logstd)
@@ -143,7 +146,7 @@ class PixelEncoder(nn.Module):
         L.log_param('train_encoder/ln', self.ln, step)
 
 class AntiAliasedPixelEncoder(PixelEncoder):
-    def __init__(self, obs_shape, fmap_shifts, feature_dim, num_layers=2, num_filters=32,output_logits=False):
+    def __init__(self, obs_shape, fmap_shifts, fc_aug, feature_dim, num_layers=2, num_filters=32, output_logits=False, *args):
         super(PixelEncoder, self).__init__()
 
         if fmap_shifts != '':
@@ -192,7 +195,7 @@ class AntiAliasedPixelEncoder(PixelEncoder):
         return h
 
 class IdentityEncoder(nn.Module):
-    def __init__(self, obs_shape, fmap_shifts, feature_dim, num_layers, num_filters,*args):
+    def __init__(self, obs_shape, fmap_shifts, fc_aug, feature_dim, num_layers, num_filters,*args):
         super().__init__()
 
         assert len(obs_shape) == 1
@@ -213,9 +216,11 @@ _AVAILABLE_ENCODERS = {'pixel': PixelEncoder,
                        'identity': IdentityEncoder}
 
 def make_encoder(
-    encoder_type, obs_shape, fmap_shifts, feature_dim, num_layers, num_filters, output_logits=False, dropout=0.,
+    encoder_type, obs_shape, fmap_shifts, fc_aug, feature_dim, num_layers, num_filters, output_logits=False, dropout='',
 ):
+    if dropout == 0:
+        dropout = ''
     assert encoder_type in _AVAILABLE_ENCODERS
     return _AVAILABLE_ENCODERS[encoder_type](
-        obs_shape, fmap_shifts, feature_dim, num_layers, num_filters, output_logits, dropout,
+        obs_shape, fmap_shifts, fc_aug, feature_dim, num_layers, num_filters, output_logits, dropout,
     )
