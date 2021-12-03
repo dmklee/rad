@@ -219,7 +219,7 @@ class Eq2InvPixelEncoder(PixelEncoder):
             [nn.Conv2d(obs_shape[0], num_filters, 3, stride=2)]
         )
         for i in range(num_layers - 1):
-            self.convs.append(nn.Conv2d(num_filters, num_filters, 3, stride=1))
+            self.convs.append(nn.Conv2d(num_filters, num_filters, 3, stride=2 if i == 0 else 1))
 
         self.fmap_shifts = [None for _ in range(num_layers)]
         if fmap_shifts != '':
@@ -238,11 +238,12 @@ class Eq2InvPixelEncoder(PixelEncoder):
                 if a != '':
                     self.fmap_dropouts[i] = nn.Dropout2d(float(a))
 
-        self.project = nn.Conv2d(num_filters, proj_size, 3, stride=1)
+        self.project = nn.Conv2d(num_filters, proj_size, 1, stride=1)
         if pool_fn == 'max':
-            self.pool = lambda x: torch.max(x, dim=(-1,-2))
+            # torch max with dim arg returns Tuple(max_vals, indices)
+            self.pool = lambda x: torch.max(torch.flatten(x,2), dim=-1)[0]
         elif pool_fn == 'sum':
-            self.pool = lambda x: torch.sum(x, dim=(-1,-2))
+            self.pool = lambda x: torch.sum(torch.flatten(x,2), dim=-1)
         else:
             raise TypeError('Arg, pool_fn, must be in {max, sum}')
 
@@ -334,7 +335,7 @@ if __name__ == "__main__":
         with torch.no_grad():
             pixel_enc(obs)
         avg_time += time.time()-t
-    print('pixel_enc: {avg_time}ms')
+    print(f'pixel_enc: {avg_time}ms')
 
     avg_time = 0
     for _ in range(1000):
@@ -342,5 +343,5 @@ if __name__ == "__main__":
         with torch.no_grad():
             e2i_enc(obs)
         avg_time += time.time()-t
-    print('e2i_enc: {avg_time}ms')
+    print(f'e2i_enc: {avg_time}ms')
 
