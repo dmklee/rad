@@ -219,7 +219,7 @@ class Eq2InvPixelEncoder(PixelEncoder):
             [nn.Conv2d(obs_shape[0], num_filters, 3, stride=2)]
         )
         for i in range(num_layers - 1):
-            self.convs.append(nn.Conv2d(num_filters, num_filters, 3, stride=2 if i == 0 else 1))
+            self.convs.append(nn.Conv2d(num_filters, num_filters, 3, stride=1))
 
         self.fmap_shifts = [None for _ in range(num_layers)]
         if fmap_shifts != '':
@@ -238,6 +238,7 @@ class Eq2InvPixelEncoder(PixelEncoder):
                 if a != '':
                     self.fmap_dropouts[i] = nn.Dropout2d(float(a))
 
+        self.prepool = nn.AvgPool2d(4, 4)
         self.project = nn.Conv2d(num_filters, proj_size, 1, stride=1)
         if pool_fn == 'max':
             # torch max with dim arg returns Tuple(max_vals, indices)
@@ -279,6 +280,7 @@ class Eq2InvPixelEncoder(PixelEncoder):
             if sample_augs and self.fmap_dropouts[i] is not None:
                 conv = self.fmap_dropouts[i](conv)
 
+        conv = self.prepool(conv)
         conv = torch.relu(self.project(conv))
         self.outputs['projection'] = conv
 
@@ -323,14 +325,16 @@ if __name__ == "__main__":
     device = torch.device('cuda')
     obs_shape = (9,84,84)
     pixel_enc = PixelEncoder(obs_shape, '','',50, 4,32).to(device)
+    print(pixel_enc)
     e2i_enc = Eq2InvPixelEncoder(obs_shape, '','',50, 4,32, proj_size=1024).to(device)
+    print(e2i_enc)
 
     B = 512
     obs = torch.rand((B, *obs_shape)).to(device)
     import time
 
     avg_time = 0
-    for _ in range(1000):
+    for _ in range(100):
         t = time.time()
         with torch.no_grad():
             pixel_enc(obs)
@@ -338,7 +342,7 @@ if __name__ == "__main__":
     print(f'pixel_enc: {avg_time}ms')
 
     avg_time = 0
-    for _ in range(1000):
+    for _ in range(100):
         t = time.time()
         with torch.no_grad():
             e2i_enc(obs)
