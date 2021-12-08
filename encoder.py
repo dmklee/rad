@@ -144,6 +144,61 @@ class PixelEncoder(nn.Module):
         L.log_param('train_encoder/fc', self.fc, step)
         L.log_param('train_encoder/ln', self.ln, step)
 
+class PixelEncoder_narrow(PixelEncoder, nn.Module):
+    """Convolutional encoder of pixels observations."""
+    def __init__(self,
+                 obs_shape,
+                 fmap_shifts,
+                 fc_aug,
+                 feature_dim,
+                 num_layers=2,
+                 num_filters=32,
+                 output_logits=False,
+                 dropout='',
+                ):
+        nn.Module.__init__(self)
+
+        num_filters = num_filters
+
+        assert len(obs_shape) == 3
+        self.obs_shape = obs_shape
+        self.feature_dim = feature_dim
+        self.num_layers = num_layers
+        # try 2 5x5s with strides 2x2. with samep adding, it should reduce 84 to 21, so with valid, it should be even smaller than 21.
+        self.convs = nn.ModuleList(
+            [nn.Conv2d(obs_shape[0], num_filters, 3, stride=2)]
+        )
+        for i in range(num_layers - 1):
+            self.convs.append(nn.Conv2d(num_filters, 2*num_filters, 3, stride=2 if i<2 else 1))
+            num_filters *= 2
+
+        self.fmap_shifts = [None for _ in range(num_layers)]
+        if fmap_shifts != '':
+            for i, a in enumerate(fmap_shifts.split(':')):
+                if a == '':
+                    continue
+                if ',' in a:
+                    t,r = [float(z) for z in a.split(',')]
+                    self.fmap_shifts[i] = (t, r)
+                else:
+                    a = float(a)
+                    self.fmap_shifts[i] = (a, 0)
+        self.fmap_dropouts = [None for _ in range(num_layers)]
+        if dropout != '':
+            for i,a in enumerate(dropout.split(':')):
+                if a != '':
+                    self.fmap_dropouts[i] = nn.Dropout2d(float(a))
+
+        out_dim = 7
+
+        self.fc_aug = None
+        self.fc = nn.Linear(num_filters * out_dim * out_dim, self.feature_dim)
+        self.ln = nn.LayerNorm(self.feature_dim)
+
+        self.outputs = dict()
+        self.output_logits = output_logits
+
+
 class AntiAliasedPixelEncoder(PixelEncoder):
     def __init__(self, obs_shape, fmap_shifts, fc_aug, feature_dim, num_layers=2, num_filters=32, output_logits=False, *args):
         super(PixelEncoder, self).__init__()
@@ -207,10 +262,12 @@ class Eq2InvPixelEncoder(PixelEncoder):
                  dropout='',
                  proj_size=1024, # n_channels before pooling
                  pool_fn='max',
+                 index_projection=True,
                 ):
         super(PixelEncoder, self).__init__()
 
         assert len(obs_shape) == 3
+        self.index_projection = index_projection
         self.obs_shape = obs_shape
         self.feature_dim = feature_dim
         self.num_layers = num_layers
@@ -239,7 +296,7 @@ class Eq2InvPixelEncoder(PixelEncoder):
                     self.fmap_dropouts[i] = nn.Dropout2d(float(a))
 
         self.prepool = nn.AvgPool2d(4, 4)
-        self.project = nn.Conv2d(num_filters, proj_size, 1, stride=1)
+        self.project = nn.Conv2d(num_filters+self.index_projection*2, proj_size, 1, stride=1)
         if pool_fn == 'max':
             # torch max with dim arg returns Tuple(max_vals, indices)
             self.pool = lambda x: torch.max(torch.flatten(x,2), dim=-1)[0]
@@ -281,6 +338,12 @@ class Eq2InvPixelEncoder(PixelEncoder):
                 conv = self.fmap_dropouts[i](conv)
 
         conv = self.prepool(conv)
+        if self.index_projection:
+            theta = torch.tensor(((1,0,0),(0,1,0)), device=conv.device, dtype=torch.float32)
+            coords = torch.nn.functional.affine_grid(theta.repeat(conv.size(0),1,1),
+                                                  conv.size(), align_corners=True).permute(0,3,1,2)
+
+            conv = torch.concat([conv, coords], dim=1)
         conv = torch.relu(self.project(conv))
         self.outputs['projection'] = conv
 
@@ -306,6 +369,7 @@ class IdentityEncoder(nn.Module):
 
 
 _AVAILABLE_ENCODERS = {'pixel': PixelEncoder,
+                       'pixel_narrow': PixelEncoder_narrow,
                        'pixel_aa': AntiAliasedPixelEncoder,
                        'pixel_e2i': Eq2InvPixelEncoder,
                        'identity': IdentityEncoder}
@@ -328,6 +392,8 @@ if __name__ == "__main__":
     print(pixel_enc)
     e2i_enc = Eq2InvPixelEncoder(obs_shape, '','',50, 4,32, proj_size=1024).to(device)
     print(e2i_enc)
+    pixel_enc_narrow = PixelEncoder_narrow(obs_shape, '','',50, 4,32).to(device)
+    print(pixel_enc_narrow)
 
     B = 512
     obs = torch.rand((B, *obs_shape)).to(device)
@@ -340,6 +406,14 @@ if __name__ == "__main__":
             pixel_enc(obs)
         avg_time += time.time()-t
     print(f'pixel_enc: {avg_time}ms')
+
+    avg_time = 0
+    for _ in range(100):
+        t = time.time()
+        with torch.no_grad():
+            pixel_enc_narrow(obs)
+        avg_time += time.time()-t
+    print(f'pixel_enc_narrow: {avg_time}ms')
 
     avg_time = 0
     for _ in range(100):

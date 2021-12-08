@@ -482,7 +482,7 @@ class RadSacAgent(object):
 
 
     def update(self, replay_buffer, L, step):
-        if self.encoder_type == 'pixel':
+        if self.encoder_type.find('pixel') > -1:
             obs, action, reward, next_obs, not_done = replay_buffer.sample_rad(self.augs_funcs)
         else:
             obs, action, reward, next_obs, not_done = replay_buffer.sample_proprio()
