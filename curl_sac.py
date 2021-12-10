@@ -6,7 +6,8 @@ import copy
 import math
 
 import utils
-from encoder import make_encoder
+# from encoder import make_encoder
+from encoder_refactored import make_encoder
 import data_augs as rad
 
 LOG_FREQ = 10000
@@ -48,13 +49,13 @@ def weight_init(m):
 class Actor(nn.Module):
     """MLP actor network."""
     def __init__(
-        self, obs_shape, action_shape, hidden_dim, encoder_type, encoder_fmap_shifts, encoder_fc_aug,
+        self, obs_shape, action_shape, hidden_dim, encoder_type, encoder_fmap_shifts,
         encoder_feature_dim, encoder_dropout, log_std_min, log_std_max, num_layers, num_filters
     ):
         super().__init__()
 
         self.encoder = make_encoder(
-            encoder_type, obs_shape, encoder_fmap_shifts, encoder_fc_aug,
+            encoder_type, obs_shape, encoder_fmap_shifts,
             encoder_feature_dim, num_layers,
             num_filters, output_logits=True, dropout=encoder_dropout
         )
@@ -144,14 +145,14 @@ class QFunction(nn.Module):
 class Critic(nn.Module):
     """Critic network, employes two q-functions."""
     def __init__(
-        self, obs_shape, action_shape, hidden_dim, encoder_type, encoder_fmap_shifts, encoder_fc_aug,
+        self, obs_shape, action_shape, hidden_dim, encoder_type, encoder_fmap_shifts,
         encoder_feature_dim, encoder_dropout, num_layers, num_filters
     ):
         super().__init__()
 
 
         self.encoder = make_encoder(
-            encoder_type, obs_shape, encoder_fmap_shifts, encoder_fc_aug, encoder_feature_dim, num_layers,
+            encoder_type, obs_shape, encoder_fmap_shifts, encoder_feature_dim, num_layers,
             num_filters, output_logits=True, dropout=encoder_dropout,
         )
 
@@ -265,7 +266,6 @@ class RadSacAgent(object):
         critic_target_update_freq=2,
         encoder_type='pixel',
         encoder_fmap_shifts=':::',
-        encoder_fc_aug='',
         encoder_dropout='',
         encoder_feature_dim=50,
         encoder_lr=1e-3,
@@ -313,18 +313,18 @@ class RadSacAgent(object):
                 self.augs_funcs[aug_name] = aug_to_func[aug_name]
 
         self.actor = Actor(
-            obs_shape, action_shape, hidden_dim, encoder_type, encoder_fmap_shifts, encoder_fc_aug,
+            obs_shape, action_shape, hidden_dim, encoder_type, encoder_fmap_shifts,
             encoder_feature_dim, encoder_dropout, actor_log_std_min, actor_log_std_max,
             num_layers, num_filters
         ).to(device)
 
         self.critic = Critic(
-            obs_shape, action_shape, hidden_dim, encoder_type, encoder_fmap_shifts, encoder_fc_aug,
+            obs_shape, action_shape, hidden_dim, encoder_type, encoder_fmap_shifts,
             encoder_feature_dim, encoder_dropout, num_layers, num_filters
         ).to(device)
 
         self.critic_target = Critic(
-            obs_shape, action_shape, hidden_dim, encoder_type, encoder_fmap_shifts, encoder_fc_aug,
+            obs_shape, action_shape, hidden_dim, encoder_type, encoder_fmap_shifts,
             encoder_feature_dim, encoder_dropout, num_layers, num_filters
         ).to(device)
 

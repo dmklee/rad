@@ -55,7 +55,6 @@ def arg_parser():
     # encoder
     parser.add_argument('--encoder_type', default='pixel', type=str)
     parser.add_argument('--encoder_fmap_shifts', default='', type=str)
-    parser.add_argument('--encoder_fc_aug', default='', type=str)
     parser.add_argument('--encoder_feature_dim', default=50, type=int)
     parser.add_argument('--encoder_lr', default=1e-3, type=float)
     parser.add_argument('--encoder_tau', default=0.05, type=float)
@@ -154,9 +153,6 @@ def make_agent(obs_shape, action_shape, args, device):
         args.encoder_fmap_shifts = ''
     if 'encoder_dropout' not in vars(args):
         args.encoder_dropout = ''
-    if 'encoder_fc_aug' not in vars(args):
-        # backward compatibility
-        args.encoder_fc_aug = ''
 
 
     if args.agent in ('rad_sac', 'pixel_sac'):
@@ -180,7 +176,6 @@ def make_agent(obs_shape, action_shape, args, device):
             critic_target_update_freq=args.critic_target_update_freq,
             encoder_type=args.encoder_type,
             encoder_fmap_shifts=args.encoder_fmap_shifts,
-            encoder_fc_aug=args.encoder_fc_aug,
             encoder_dropout=args.encoder_dropout,
             encoder_feature_dim=args.encoder_feature_dim,
             encoder_lr=args.encoder_lr,
@@ -234,8 +229,6 @@ def main(args):
         exp_name += f"-{args.num_updates_per_env_step}updates"
     if args.encoder_fmap_shifts != '':
         exp_name += f"-intra{args.encoder_fmap_shifts}"
-    if args.encoder_fc_aug != '':
-        exp_name += f"-fc_{args.encoder_fc_aug}"
     if args.encoder_dropout != '':
         exp_name += f"-dropout{args.encoder_dropout}"
     exp_name += f"-{int(args.num_train_steps/1000)}k"
