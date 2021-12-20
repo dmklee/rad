@@ -36,7 +36,7 @@ def run_experiment(**kwargs):
 
 def run(num_train_steps, agent, encoder_type, encoder_num_layers,
         encoder_fmap_shifts, dropout, seeds,
-        work_dir, envs, num_updates_per_env_step):
+        work_dir, envs, num_updates_per_env_step, encoder_train_steps):
     for seed in seeds:
         for env in envs:
             domain, task = env
@@ -46,6 +46,9 @@ def run(num_train_steps, agent, encoder_type, encoder_num_layers,
                 data_aug = ''
             image_size = IMAGE_SIZE_LOOKUP[data_aug]
             action_repeat = ACTION_REPEAT_LOOKUP[env]
+
+            if encoder_train_steps is None:
+                encoder_train_steps = num_train_steps
 
             run_experiment(domain_name=domain,
                            task_name=task,
@@ -92,6 +95,7 @@ def run(num_train_steps, agent, encoder_type, encoder_num_layers,
                            save_model=False,
                            detach_encoder=False,
                            data_augs=data_aug,
+                           encoder_train_steps=encoder_train_steps,
                           )
 
 if __name__ == "__main__":
@@ -101,6 +105,7 @@ if __name__ == "__main__":
     parser.add_argument('--num-layers', type=int, default=4)
     parser.add_argument('--fmap-shifts', type=str, default='')
     parser.add_argument('--dropout', type=str, default='')
+    parser.add_argument('--encoder-train-steps', type=str, default=None)
     parser.add_argument('--num-train-steps', type=int, default=100000)
     parser.add_argument('--num-updates-per-env-step', type=int, default=1)
     parser.add_argument('--envs', type=str, nargs='+', default=[])
@@ -115,4 +120,4 @@ if __name__ == "__main__":
 
     run(args.num_train_steps, args.agent, args.encoder_type, args.num_layers,
         args.fmap_shifts, args.dropout, args.seeds,
-        args.work_dir, envs, args.num_updates_per_env_step)
+        args.work_dir, envs, args.num_updates_per_env_step, args.encoder_train_steps)

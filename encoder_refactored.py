@@ -124,6 +124,8 @@ class PixelEncoder(nn.Module):
         assert downsampling_mode in ('stride', 'blurpool')
         assert projection_style in ('mlp', 'e2i')
         super().__init__()
+        # self.ds_factors = {f'conv{i+1}':downsampling_per_conv[i] for i in range(len(downsampling_per_conv))}
+        self.ds_factors = {f'conv{i+1}':ds for i,ds in enumerate(np.cumprod(downsampling_per_conv))}
 
         assert len(obs_shape) == 3
         self.obs_shape = obs_shape
@@ -274,6 +276,7 @@ if __name__ == "__main__":
     feature_dim = 50
     for encoder_type in _AVAILABLE_ENCODERS:
         encoder = make_encoder(encoder_type, obs_shape, '', feature_dim, 4, 32).to(device)
+        optim = torch.optim.Adam(encoder.parameters(), lr=1e-3)
         fp_time = 0
         bp_time = 0
         for _ in range(num_trials):
@@ -281,9 +284,11 @@ if __name__ == "__main__":
             out = encoder(obs)
             fp_time += time.time()-t
 
-            loss = out.sum()
             t = time.time()
+            optim.zero_grad()
+            loss = out.sum()
             loss.backward()
+            optim.step()
             bp_time += time.time()-t
 
         data[encoder_type] = {'num params' : sum(p.numel() for p in encoder.parameters())/1000000,

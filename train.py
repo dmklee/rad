@@ -35,6 +35,7 @@ def arg_parser():
     parser.add_argument('--agent', default='rad_sac', type=str)
     parser.add_argument('--init_steps', default=1000, type=int)
     parser.add_argument('--num_train_steps', default=1000000, type=int)
+    parser.add_argument('--encoder_train_steps', default=1000000, type=int)
     parser.add_argument('--num_updates_per_env_step', default=1, type=int)
     parser.add_argument('--batch_size', default=32, type=int)
     parser.add_argument('--hidden_dim', default=1024, type=int)
@@ -231,6 +232,8 @@ def main(args):
         exp_name += f"-intra{args.encoder_fmap_shifts}"
     if args.encoder_dropout != '':
         exp_name += f"-dropout{args.encoder_dropout}"
+    if args.encoder_train_steps < args.num_train_steps:
+        exp_name += f"-frozen{int(args.encoder_train_steps/1000)}"
     exp_name += f"-{int(args.num_train_steps/1000)}k"
     print(exp_name)
     args.work_dir = args.work_dir + '/'  + exp_name
@@ -281,8 +284,10 @@ def main(args):
 
     update_step = 0
     for step in range(args.num_train_steps+1):
-        # evaluate agent periodically
+        if step == args.encoder_train_steps:
+            agent.detach_encoder = True
 
+        # evaluate agent periodically
         if step % args.eval_freq == 0:
             L.log('eval/episode', episode, step)
             evaluate(env, agent, video, args.num_eval_episodes, L, step,args)
