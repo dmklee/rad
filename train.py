@@ -285,7 +285,9 @@ def main(args):
     update_step = 0
     for step in range(args.num_train_steps+1):
         if step == args.encoder_train_steps:
-            agent.detach_encoder = True
+            agent.actor.encoder.freeze_conv_weights()
+            agent.critic.encoder.freeze_conv_weights()
+            agent.critic_target.encoder.freeze_conv_weights()
 
         # evaluate agent periodically
         if step % args.eval_freq == 0:

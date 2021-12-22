@@ -197,6 +197,10 @@ class PixelEncoder(nn.Module):
 
         return out
 
+    def freeze_conv_weights(self):
+        for param in self.convs.parameters():
+            param.requires_grad = False
+
     def copy_conv_weights_from(self, source):
         """Tie convolutional layers"""
         # only tie conv layers

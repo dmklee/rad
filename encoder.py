@@ -19,7 +19,6 @@ class PixelEncoder(nn.Module):
     def __init__(self,
                  obs_shape,
                  fmap_shifts,
-                 fc_aug,
                  feature_dim,
                  num_layers=2,
                  num_filters=32,
@@ -27,6 +26,7 @@ class PixelEncoder(nn.Module):
                  dropout='',
                 ):
         super().__init__()
+        self.ds_factors = {f'conv{i+1}':2 for i in range(num_layers)}
 
         assert len(obs_shape) == 3
         self.obs_shape = obs_shape
@@ -124,6 +124,10 @@ class PixelEncoder(nn.Module):
 
         return out
 
+    def freeze_conv_weights(self):
+        for param in self.convs.parameters():
+            param.requires_grad = False
+
     def copy_conv_weights_from(self, source):
         """Tie convolutional layers"""
         # only tie conv layers
@@ -149,7 +153,6 @@ class PixelEncoder_narrow(PixelEncoder, nn.Module):
     def __init__(self,
                  obs_shape,
                  fmap_shifts,
-                 fc_aug,
                  feature_dim,
                  num_layers=2,
                  num_filters=32,
@@ -179,7 +182,7 @@ class PixelEncoder_narrow(PixelEncoder, nn.Module):
 
 
 class AntiAliasedPixelEncoder(PixelEncoder):
-    def __init__(self, obs_shape, fmap_shifts, fc_aug, feature_dim, num_layers=2, num_filters=32, output_logits=False, *args):
+    def __init__(self, obs_shape, fmap_shifts, feature_dim, num_layers=2, num_filters=32, output_logits=False, *args):
         super(PixelEncoder, self).__init__()
 
         if fmap_shifts != '':
@@ -233,7 +236,6 @@ class Eq2InvPixelEncoder(PixelEncoder):
     def __init__(self,
                  obs_shape,
                  fmap_shifts,
-                 fc_aug,
                  feature_dim,
                  num_layers=2,
                  num_filters=32,
@@ -306,7 +308,6 @@ class Eq2InvPixelEncoder_narrow(PixelEncoder):
     def __init__(self,
                  obs_shape,
                  fmap_shifts,
-                 fc_aug,
                  feature_dim,
                  num_layers=2,
                  num_filters=32,
@@ -374,7 +375,7 @@ class Eq2InvPixelEncoder_narrow(PixelEncoder):
 
 
 class IdentityEncoder(nn.Module):
-    def __init__(self, obs_shape, fmap_shifts, fc_aug, feature_dim, num_layers, num_filters,*args):
+    def __init__(self, obs_shape, fmap_shifts, feature_dim, num_layers, num_filters,*args):
         super().__init__()
 
         assert len(obs_shape) == 1
@@ -398,13 +399,13 @@ _AVAILABLE_ENCODERS = {'pixel': PixelEncoder,
                        'identity': IdentityEncoder}
 
 def make_encoder(
-    encoder_type, obs_shape, fmap_shifts, fc_aug, feature_dim, num_layers, num_filters, output_logits=False, dropout='',
+    encoder_type, obs_shape, fmap_shifts, feature_dim, num_layers, num_filters, output_logits=False, dropout='',
 ):
     if dropout == 0:
         dropout = ''
     assert encoder_type in _AVAILABLE_ENCODERS
     return _AVAILABLE_ENCODERS[encoder_type](
-        obs_shape, fmap_shifts, fc_aug, feature_dim, num_layers, num_filters, output_logits, dropout,
+        obs_shape, fmap_shifts, feature_dim, num_layers, num_filters, output_logits, dropout,
     )
 
 if __name__ == "__main__":
