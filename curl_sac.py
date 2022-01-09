@@ -50,14 +50,17 @@ class Actor(nn.Module):
     """MLP actor network."""
     def __init__(
         self, obs_shape, action_shape, hidden_dim, encoder_type, encoder_fmap_shifts,
-        encoder_feature_dim, encoder_dropout, log_std_min, log_std_max, num_layers, num_filters
+        encoder_feature_dim, encoder_dropout, encoder_final_fmap_dropout, encoder_final_fmap_blur,
+        log_std_min, log_std_max, num_layers, num_filters
     ):
         super().__init__()
 
         self.encoder = make_encoder(
             encoder_type, obs_shape, encoder_fmap_shifts,
             encoder_feature_dim, num_layers,
-            num_filters, output_logits=True, dropout=encoder_dropout
+            num_filters, output_logits=True, dropout=encoder_dropout,
+            final_fmap_dropout=encoder_final_fmap_dropout,
+            final_fmap_blur=encoder_final_fmap_blur,
         )
 
         self.log_std_min = log_std_min
@@ -146,7 +149,8 @@ class Critic(nn.Module):
     """Critic network, employes two q-functions."""
     def __init__(
         self, obs_shape, action_shape, hidden_dim, encoder_type, encoder_fmap_shifts,
-        encoder_feature_dim, encoder_dropout, num_layers, num_filters
+        encoder_feature_dim, encoder_dropout, encoder_final_fmap_dropout, encoder_final_fmap_blur,
+        num_layers, num_filters
     ):
         super().__init__()
 
@@ -154,6 +158,8 @@ class Critic(nn.Module):
         self.encoder = make_encoder(
             encoder_type, obs_shape, encoder_fmap_shifts, encoder_feature_dim, num_layers,
             num_filters, output_logits=True, dropout=encoder_dropout,
+            final_fmap_dropout=encoder_final_fmap_dropout,
+            final_fmap_blur=encoder_final_fmap_blur,
         )
 
         self.Q1 = QFunction(
@@ -267,6 +273,8 @@ class RadSacAgent(object):
         encoder_type='pixel',
         encoder_fmap_shifts=':::',
         encoder_dropout='',
+        encoder_final_fmap_dropout=0,
+        encoder_final_fmap_blur=0,
         encoder_feature_dim=50,
         encoder_lr=1e-3,
         encoder_tau=0.005,
@@ -314,18 +322,21 @@ class RadSacAgent(object):
 
         self.actor = Actor(
             obs_shape, action_shape, hidden_dim, encoder_type, encoder_fmap_shifts,
-            encoder_feature_dim, encoder_dropout, actor_log_std_min, actor_log_std_max,
+            encoder_feature_dim, encoder_dropout, encoder_final_fmap_dropout, encoder_final_fmap_blur,
+            actor_log_std_min, actor_log_std_max,
             num_layers, num_filters
         ).to(device)
 
         self.critic = Critic(
             obs_shape, action_shape, hidden_dim, encoder_type, encoder_fmap_shifts,
-            encoder_feature_dim, encoder_dropout, num_layers, num_filters
+            encoder_feature_dim, encoder_dropout, encoder_final_fmap_dropout, encoder_final_fmap_blur,
+            num_layers, num_filters
         ).to(device)
 
         self.critic_target = Critic(
             obs_shape, action_shape, hidden_dim, encoder_type, encoder_fmap_shifts,
-            encoder_feature_dim, encoder_dropout, num_layers, num_filters
+            encoder_feature_dim, encoder_dropout, encoder_final_fmap_dropout, encoder_final_fmap_blur,
+            num_layers, num_filters
         ).to(device)
 
         self.critic_target.load_state_dict(self.critic.state_dict())
@@ -518,6 +529,14 @@ class RadSacAgent(object):
         torch.save(
             self.critic.state_dict(), '%s/critic_%s.pt' % (model_dir, step)
         )
+
+    def save_latest(self, model_dir):
+        torch.save(
+            self.actor.state_dict(), '%s/actor.pt' % model_dir
+        )
+        # torch.save(
+            # self.critic.state_dict(), '%s/critic.pt' % model_dir
+        # )
 
     def save_curl(self, model_dir, step):
         torch.save(

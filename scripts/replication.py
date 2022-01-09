@@ -35,8 +35,8 @@ def run_experiment(**kwargs):
     print(f"Completed in {datetime.timedelta(seconds=time.time()-t)}")
 
 def run(num_train_steps, agent, encoder_type, encoder_num_layers,
-        encoder_fmap_shifts, dropout, seeds,
-        work_dir, envs, num_updates_per_env_step, encoder_train_steps):
+        encoder_fmap_shifts, dropout, encoder_final_fmap_dropout, encoder_final_fmap_blur,
+        seeds, work_dir, envs, num_updates_per_env_step, encoder_train_steps):
     for seed in seeds:
         for env in envs:
             domain, task = env
@@ -80,6 +80,8 @@ def run(num_train_steps, agent, encoder_type, encoder_num_layers,
                            encoder_lr=2e-4 if env==('cheetah','run') else 1e-3,
                            encoder_tau=0.05,
                            encoder_dropout=dropout,
+                           encoder_final_fmap_dropout=encoder_final_fmap_dropout,
+                           encoder_final_fmap_blur=encoder_final_fmap_blur,
                            num_layers=encoder_num_layers,
                            num_filters=32,
                            latent_dim=50,
@@ -105,6 +107,8 @@ if __name__ == "__main__":
     parser.add_argument('--num-layers', type=int, default=4)
     parser.add_argument('--fmap-shifts', type=str, default='')
     parser.add_argument('--dropout', type=str, default='')
+    parser.add_argument('--encoder-final-fmap-dropout', type=float, default=0.)
+    parser.add_argument('--encoder-final-fmap-blur', type=float, default=0.)
     parser.add_argument('--encoder-train-steps', type=str, default=None)
     parser.add_argument('--num-train-steps', type=int, default=100000)
     parser.add_argument('--num-updates-per-env-step', type=int, default=1)
@@ -119,5 +123,5 @@ if __name__ == "__main__":
         envs = ENVS
 
     run(args.num_train_steps, args.agent, args.encoder_type, args.num_layers,
-        args.fmap_shifts, args.dropout, args.seeds,
-        args.work_dir, envs, args.num_updates_per_env_step, args.encoder_train_steps)
+        args.fmap_shifts, args.dropout, args.encoder_final_fmap_dropout, args.encoder_final_fmap_blur,
+        args.seeds, args.work_dir, envs, args.num_updates_per_env_step, args.encoder_train_steps)

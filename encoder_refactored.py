@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
+from torchvision.transforms import GaussianBlur
 from antialiased_cnns import BlurPool
 
 from equi_utils import affine2d
@@ -115,6 +116,8 @@ class PixelEncoder(nn.Module):
                  projection_style='mlp',
                  output_logits=False,
                  dropout='',
+                 final_fmap_dropout=0.,
+                 final_fmap_blur=0.,
                  prepooling_factor=1,
                  projection_dim=2056,
                  indexed_projection=True,
@@ -139,6 +142,16 @@ class PixelEncoder(nn.Module):
 
         self.fmap_shifts = parse_fmap_shifts(fmap_shifts, self.num_layers)
         self.fmap_dropouts = parse_dropout(dropout, self.num_layers)
+
+        if final_fmap_dropout:
+            self.final_fmap_dropout = nn.Dropout(p=final_fmap_dropout)
+        else:
+            self.final_fmap_dropout = None
+
+        if final_fmap_blur:
+            self.final_fmap_blur = GaussianBlur(5, sigma=final_fmap_blur)
+        else:
+            self.final_fmap_blur = None
 
         input_shape = calc_cnn_output_shape(obs_shape, filters_per_conv, downsampling_per_conv)
         self.projector, self.ln = create_projector(input_shape=input_shape,
@@ -174,6 +187,12 @@ class PixelEncoder(nn.Module):
                     conv = affine2d(conv, dhw, dth)
                 if self.fmap_dropouts[i] is not None:
                     conv = self.fmap_dropouts[i](conv)
+
+        if self.final_fmap_blur is not None:
+            conv = self.final_fmap_blur(conv)
+
+        if self.final_fmap_dropout is not None:
+            conv = self.final_fmap_dropout(conv)
 
         return conv
 
@@ -240,6 +259,8 @@ def make_encoder(encoder_type,
                  num_filters,
                  output_logits=False,
                  dropout='',
+                 final_fmap_blur=0.,
+                 final_fmap_dropout=0.,
 ):
     assert encoder_type in _AVAILABLE_ENCODERS
 
@@ -263,6 +284,8 @@ def make_encoder(encoder_type,
                         projection_style=projection_style,
                         output_logits=output_logits,
                         dropout=dropout,
+                        final_fmap_dropout=final_fmap_dropout,
+                        final_fmap_blur=final_fmap_blur,
                         prepooling_factor=1,
                         projection_dim=2056,
                         indexed_projection=indexed_projection)

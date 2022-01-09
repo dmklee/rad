@@ -399,7 +399,8 @@ _AVAILABLE_ENCODERS = {'pixel': PixelEncoder,
                        'identity': IdentityEncoder}
 
 def make_encoder(
-    encoder_type, obs_shape, fmap_shifts, feature_dim, num_layers, num_filters, output_logits=False, dropout='',
+    encoder_type, obs_shape, fmap_shifts, feature_dim, num_layers, num_filters,
+    output_logits=False, dropout='', *args, **kwargs
 ):
     if dropout == 0:
         dropout = ''
