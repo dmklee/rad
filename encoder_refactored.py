@@ -188,10 +188,12 @@ class PixelEncoder(nn.Module):
                 if self.fmap_dropouts[i] is not None:
                     conv = self.fmap_dropouts[i](conv)
 
+        # always blur
         if self.final_fmap_blur is not None:
             conv = self.final_fmap_blur(conv)
 
-        if self.final_fmap_dropout is not None:
+        # only dropout when sampling augmentations
+        if sample_augs and self.final_fmap_dropout is not None:
             conv = self.final_fmap_dropout(conv)
 
         return conv
