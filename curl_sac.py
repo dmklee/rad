@@ -275,6 +275,8 @@ class RadSacAgent(object):
         encoder_dropout='',
         encoder_final_fmap_dropout=0,
         encoder_final_fmap_blur=0,
+        encoder_final_fmap_reg_gamma=0,
+        encoder_final_fmap_reg_px=0,
         encoder_feature_dim=50,
         encoder_lr=1e-3,
         encoder_tau=0.005,
@@ -300,6 +302,9 @@ class RadSacAgent(object):
         self.encoder_type = encoder_type
         self.data_augs = data_augs
 
+        self.encoder_final_fmap_reg_gamma = encoder_final_fmap_reg_gamma
+        self.encoder_final_fmap_reg_px = encoder_final_fmap_reg_px
+
         self.augs_funcs = {}
 
         aug_to_func = {
@@ -323,8 +328,7 @@ class RadSacAgent(object):
         self.actor = Actor(
             obs_shape, action_shape, hidden_dim, encoder_type, encoder_fmap_shifts,
             encoder_feature_dim, encoder_dropout, encoder_final_fmap_dropout, encoder_final_fmap_blur,
-            actor_log_std_min, actor_log_std_max,
-            num_layers, num_filters
+            actor_log_std_min, actor_log_std_max, num_layers, num_filters
         ).to(device)
 
         self.critic = Critic(
@@ -421,11 +425,22 @@ class RadSacAgent(object):
         # get current Q estimates
         current_Q1, current_Q2 = self.critic(
             obs, action, detach_encoder=self.detach_encoder, sample_augs=True)
+
         critic_loss = F.mse_loss(current_Q1,
                                  target_Q) + F.mse_loss(current_Q2, target_Q)
+
+        if self.encoder_final_fmap_reg_gamma > 1e-6:
+            gamma = self.encoder_final_fmap_reg_gamma
+            px = self.encoder_final_fmap_reg_px
+            fmap = self.critic.encoder.outputs['conv4']
+            reg_loss = gamma * F.mse_loss(fmap[:,:,px:,px:], fmap[:,:,:-px,:-px])
+
+            critic_loss += reg_loss
+
         if step % self.log_interval == 0:
             L.log('train_critic/loss', critic_loss, step)
-
+            if self.encoder_final_fmap_reg_gamma > 1e-6:
+                L.log('train_critic/reg_loss', reg_loss, step)
 
         # Optimize the critic
         self.critic_optimizer.zero_grad()
