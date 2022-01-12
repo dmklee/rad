@@ -62,6 +62,7 @@ def arg_parser():
     parser.add_argument('--encoder_dropout', default='', type=str)
     parser.add_argument('--encoder_final_fmap_dropout', default=0, type=float)
     parser.add_argument('--encoder_final_fmap_blur', default=0, type=float)
+    parser.add_argument('--encoder_final_fmap_actfn', default='relu', type=str)
     parser.add_argument('--encoder_final_fmap_reg_gamma', default=0, type=float)
     parser.add_argument('--encoder_final_fmap_reg_px', default=0, type=int)
     parser.add_argument('--num_layers', default=4, type=int)
@@ -162,6 +163,8 @@ def make_agent(obs_shape, action_shape, args, device):
         args.encoder_final_fmap_dropout = 0.
     if 'encoder_final_fmap_blur' not in vars(args):
         args.encoder_final_fmap_blur = 0.
+    if 'encoder_final_fmap_actfn' not in vars(args):
+        args.encoder_final_fmap_actfn = 'relu'
     if 'encoder_final_fmap_reg_gamma' not in vars(args):
         args.encoder_final_fmap_reg_gamma = 0.
         args.encoder_final_fmap_reg_px = 0
@@ -190,6 +193,7 @@ def make_agent(obs_shape, action_shape, args, device):
             encoder_dropout=args.encoder_dropout,
             encoder_final_fmap_dropout=args.encoder_final_fmap_dropout,
             encoder_final_fmap_blur=args.encoder_final_fmap_blur,
+            encoder_final_fmap_actfn=args.encoder_final_fmap_actfn,
             encoder_final_fmap_reg_gamma=args.encoder_final_fmap_reg_gamma,
             encoder_final_fmap_reg_px=args.encoder_final_fmap_reg_px,
             encoder_feature_dim=args.encoder_feature_dim,
@@ -250,6 +254,8 @@ def main(args):
         exp_name += f"-fmapdropout{args.encoder_final_fmap_dropout:.1f}"
     if args.encoder_final_fmap_blur > 0:
         exp_name += f"-fmapblur{args.encoder_final_fmap_blur:.1f}"
+    if args.encoder_final_fmap_actfn != 'relu':
+        exp_name += f"-fmapactfn{args.encoder_final_fmap_actfn}"
     if args.encoder_final_fmap_reg_gamma > 0:
         exp_name += f"-fmapreg{args.encoder_final_fmap_reg_gamma:.1f},{args.encoder_final_fmap_reg_px}"
     if args.encoder_train_steps < args.num_train_steps:

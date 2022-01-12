@@ -118,6 +118,7 @@ class PixelEncoder(nn.Module):
                  dropout='',
                  final_fmap_dropout=0.,
                  final_fmap_blur=0.,
+                 final_fmap_actfn='relu',
                  prepooling_factor=1,
                  projection_dim=2056,
                  indexed_projection=True,
@@ -130,6 +131,7 @@ class PixelEncoder(nn.Module):
         # self.ds_factors = {f'conv{i+1}':downsampling_per_conv[i] for i in range(len(downsampling_per_conv))}
         self.ds_factors = {f'conv{i+1}':ds for i,ds in enumerate(np.cumprod(downsampling_per_conv))}
 
+        self.final_fmap_actfn = final_fmap_actfn
         assert len(obs_shape) == 3
         self.obs_shape = obs_shape
         self.feature_dim = feature_dim # output feature dimension
@@ -177,7 +179,13 @@ class PixelEncoder(nn.Module):
 
         conv = obs
         for i in range(self.num_layers):
-            conv = torch.relu(self.convs[i](conv))
+            if i == self.num_layers-1:
+                conv = {'relu' : torch.relu,
+                        'tanh' : torch.tanh,
+                       }[self.final_fmap_actfn](self.convs[i](conv))
+            else:
+                conv = torch.relu(self.convs[i](conv))
+
             conv = self.downsamplers[i](conv)
             self.outputs[f'conv{i+1}'] = conv
             if sample_augs:
@@ -263,6 +271,7 @@ def make_encoder(encoder_type,
                  dropout='',
                  final_fmap_blur=0.,
                  final_fmap_dropout=0.,
+                 final_fmap_actfn='relu',
 ):
     assert encoder_type in _AVAILABLE_ENCODERS
 
@@ -288,6 +297,7 @@ def make_encoder(encoder_type,
                         dropout=dropout,
                         final_fmap_dropout=final_fmap_dropout,
                         final_fmap_blur=final_fmap_blur,
+                        final_fmap_actfn=final_fmap_actfn,
                         prepooling_factor=1,
                         projection_dim=2056,
                         indexed_projection=indexed_projection)

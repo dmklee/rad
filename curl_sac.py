@@ -51,7 +51,7 @@ class Actor(nn.Module):
     def __init__(
         self, obs_shape, action_shape, hidden_dim, encoder_type, encoder_fmap_shifts,
         encoder_feature_dim, encoder_dropout, encoder_final_fmap_dropout, encoder_final_fmap_blur,
-        log_std_min, log_std_max, num_layers, num_filters
+        encoder_final_fmap_actfn, log_std_min, log_std_max, num_layers, num_filters
     ):
         super().__init__()
 
@@ -61,6 +61,7 @@ class Actor(nn.Module):
             num_filters, output_logits=True, dropout=encoder_dropout,
             final_fmap_dropout=encoder_final_fmap_dropout,
             final_fmap_blur=encoder_final_fmap_blur,
+            final_fmap_actfn=encoder_final_fmap_actfn,
         )
 
         self.log_std_min = log_std_min
@@ -150,7 +151,7 @@ class Critic(nn.Module):
     def __init__(
         self, obs_shape, action_shape, hidden_dim, encoder_type, encoder_fmap_shifts,
         encoder_feature_dim, encoder_dropout, encoder_final_fmap_dropout, encoder_final_fmap_blur,
-        num_layers, num_filters
+        encoder_final_fmap_actfn, num_layers, num_filters
     ):
         super().__init__()
 
@@ -160,6 +161,7 @@ class Critic(nn.Module):
             num_filters, output_logits=True, dropout=encoder_dropout,
             final_fmap_dropout=encoder_final_fmap_dropout,
             final_fmap_blur=encoder_final_fmap_blur,
+            final_fmap_actfn=encoder_final_fmap_actfn,
         )
 
         self.Q1 = QFunction(
@@ -275,6 +277,7 @@ class RadSacAgent(object):
         encoder_dropout='',
         encoder_final_fmap_dropout=0,
         encoder_final_fmap_blur=0,
+        encoder_final_fmap_actfn='relu',
         encoder_final_fmap_reg_gamma=0,
         encoder_final_fmap_reg_px=0,
         encoder_feature_dim=50,
@@ -328,19 +331,19 @@ class RadSacAgent(object):
         self.actor = Actor(
             obs_shape, action_shape, hidden_dim, encoder_type, encoder_fmap_shifts,
             encoder_feature_dim, encoder_dropout, encoder_final_fmap_dropout, encoder_final_fmap_blur,
-            actor_log_std_min, actor_log_std_max, num_layers, num_filters
+            encoder_final_fmap_actfn, actor_log_std_min, actor_log_std_max, num_layers, num_filters
         ).to(device)
 
         self.critic = Critic(
             obs_shape, action_shape, hidden_dim, encoder_type, encoder_fmap_shifts,
             encoder_feature_dim, encoder_dropout, encoder_final_fmap_dropout, encoder_final_fmap_blur,
-            num_layers, num_filters
+            encoder_final_fmap_actfn, num_layers, num_filters
         ).to(device)
 
         self.critic_target = Critic(
             obs_shape, action_shape, hidden_dim, encoder_type, encoder_fmap_shifts,
             encoder_feature_dim, encoder_dropout, encoder_final_fmap_dropout, encoder_final_fmap_blur,
-            num_layers, num_filters
+            encoder_final_fmap_actfn, num_layers, num_filters
         ).to(device)
 
         self.critic_target.load_state_dict(self.critic.state_dict())
