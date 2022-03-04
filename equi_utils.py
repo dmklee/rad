@@ -28,7 +28,7 @@ def shift2d(x, dhw):
                                           align_corners=True)
     return unshifted
 
-def affine2d(x, dhw, dth):
+def affine2d(x, dhw, dth=torch.tensor([0])):
     '''
     dh -> shift up (+); shift down (-)
     dw -> shift left (+); shift right (-)
@@ -66,7 +66,17 @@ def sample_pixel_shifts(N, min_shift, max_shift):
 def cosine_distance(x, y):
     cosine_sim = nn.CosineSimilarity()(x.reshape(x.size(0),-1),
                                        y.reshape(y.size(0),-1))
-    return 1 - cosine_sim
+    return cosine_sim
+    # return 1 - cosine_sim
+
+def get_conv_strides(model):
+    strides = {k:v.stride[0] for k,v in model.named_modules() if isinstance(v, nn.Conv2d)}
+    strides = dict()
+    for k,v in model.named_modules():
+        if isinstance(v, nn.Conv2d):
+            _, _, i = k.split('.')
+            strides[f'conv{int(i)+1}'] = v.stride[0]
+    return strides
 
 def _eval_model(model, imgs, shift_range, n_augs=8):
     '''evaluates the invariance of a model at every feature map
@@ -77,6 +87,7 @@ def _eval_model(model, imgs, shift_range, n_augs=8):
     # generate inputs
     raw_x = torch.tensor(imgs, device=device).repeat(n_augs, 1,1,1)
     dhw = sample_pixel_shifts(raw_x.size(0), *shift_range).to(device)
+
     shifted_x = shift2d(raw_x, dhw)
 
     obs_size = model.encoder.obs_shape[-1]
@@ -96,11 +107,11 @@ def _eval_model(model, imgs, shift_range, n_augs=8):
     # deshifted fmaps
     dhw = dhw.cpu()
     deshifted_fmaps = {}
-    ds_factor = 2
-    border_size = ds_factor*shift_range[1]
+    ds_factors = model.encoder.ds_factors
+    border_size = shift_range[1]
     for name in raw_fmaps.keys():
         if 'conv' in name:
-            deshifted_fmaps[name] = shift2d(shifted_fmaps[name], -dhw/ds_factor)
+            deshifted_fmaps[name] = shift2d(shifted_fmaps[name], -dhw/ds_factors[name])
 
     # now calculate equivariance and/or invariance
     results = {'inv' : dict(), 'equiv' : dict()}
@@ -108,7 +119,7 @@ def _eval_model(model, imgs, shift_range, n_augs=8):
         raw = raw_fmaps[name]
         shifted = shifted_fmaps[name]
         if 'conv' in name:
-            output_size = int(raw.shape[-1] - 2*border_size)
+            output_size = raw.shape[-1] - int(2*border_size/ds_factors[name])
             raw = utils.center_crop_images(raw, output_size)
             shifted = utils.center_crop_images(shifted, output_size)
             deshifted = utils.center_crop_images(deshifted_fmaps[name], output_size)
@@ -118,12 +129,13 @@ def _eval_model(model, imgs, shift_range, n_augs=8):
 
     return results
 
-def load_from_results(results_folder, is_trained=True):
+def load_from_results(results_folder, is_trained=True, num_train_steps=100000):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     args_fname = os.path.join(results_folder, 'args.json')
     with open(args_fname, 'r') as f:
         args = utils.Bunch(json.loads(f.read()))
+    args.seed = 0
     utils.set_seed_everywhere(args.seed)
 
     pre_transform_image_size = args.pre_transform_image_size if 'crop' in args.data_augs else args.image_size
@@ -163,14 +175,15 @@ def load_from_results(results_folder, is_trained=True):
         device=device
     )
 
-    agent.load(os.path.join(results_folder, 'model'), 100000)
+    agent.load(os.path.join(results_folder, 'model'), num_train_steps)
     if not is_trained:
         agent.actor.reset_weights()
         agent.critic.reset_weights()
 
     return env, agent, args
 
-def collect_observations(env, agent, n_obs, data_distribution):
+def collect_observations(env, agent, n_obs, data_distribution='on_policy',
+                         max_episode_steps=50):
     assert data_distribution in ('on_policy', 'off_policy')
     # collect samples
     obss = []
@@ -190,6 +203,7 @@ def collect_observations(env, agent, n_obs, data_distribution):
                 raise TypeError
 
         obs, reward, done, _ = env.step(action)
+        done = done or episode_step >= max_episode_steps
         episode_step += 1
         obss.append(obs)
 
@@ -212,16 +226,26 @@ def extract_module_names(model, mode='inv'):
                 names.append(f"{k}")
     return names
 
-def fraction_lowpass(kernel, padding=10):
-    exp_kernel = torch.nn.functional.pad(kernel, (0,padding,0,padding))
-    size = exp_kernel.shape[-1]
-    exp_kernel = exp_kernel.view(-1, size, size)
+def fraction_lowpass(kernel, padding=10, fraction=0.25):
+    with torch.no_grad():
+        exp_kernel = torch.nn.functional.pad(kernel, (0,padding,0,padding))
+        size = exp_kernel.shape[-1]
+        exp_kernel = exp_kernel.view(-1, size, size)
 
-    fft_kernel = torch.fft.fft2(exp_kernel)
-    mask = torch.outer(torch.fft.fftfreq(size).abs() < 0.25,
-                       torch.fft.fftfreq(size).abs() < 0.25).view(1,1,size,size)
-    mask = mask.to(kernel.device)
-    return (fft_kernel*mask).abs().sum(dim=(-1,-2))/ fft_kernel.abs().sum(dim=(-1,-2))
+        fft_kernel = torch.fft.fft2(exp_kernel)
+        mask = torch.outer(torch.fft.fftfreq(size).abs() < fraction,
+                           torch.fft.fftfreq(size).abs() < fraction).view(1,1,size,size)
+        mask = mask.to(kernel.device)
+        ret = (fft_kernel*mask).abs().sum(dim=(-1,-2))/ fft_kernel.abs().sum(dim=(-1,-2))
+    return ret
+    # import matplotlib.pyplot as plt
+    # f,ax = plt.subplots(3,3)
+    # for i in range(3):
+        # for j in range(3):
+            # ax[i,j].imshow(fft_kernel.abs()[10+i*3+j])
+            # ax[i,j].axis('off')
+    # plt.tight_layout()
+    # plt.show()
 
 def evaluate_filters(agent):
     network = agent.actor
@@ -229,12 +253,12 @@ def evaluate_filters(agent):
     for i, conv in enumerate(network.encoder.convs):
         filter_metrics["l2_norm"][f"conv{i+1}"] = torch.linalg.matrix_norm(conv.weight).mean().item()
         filter_metrics["sum"][f"conv{i+1}"] = conv.weight.sum(dim=(-1,-2)).mean().item()
-        filter_metrics["lowpass"][f"conv{i+1}"] = fraction_lowpass(conv.weight).mean().item()
+        filter_metrics["lowpass"][f"conv{i+1}"] = fraction_lowpass(conv.weight, fraction=0.25).mean().item()
 
-    filter_metrics["l2_norm"]["fc0"] = torch.linalg.norm(network.encoder.fc.weight, dim=1).mean().item()
+    # filter_metrics["l2_norm"]["fc0"] = torch.linalg.norm(network.encoder.fc.weight, dim=1).mean().item()
 
-    for i, fc in enumerate([a for a in network.trunk if isinstance(a, nn.Linear)]):
-        filter_metrics["l2_norm"][f"fc{i+1}"] = torch.linalg.norm(fc.weight, dim=1).mean().item()
+    # for i, fc in enumerate([a for a in network.trunk if isinstance(a, nn.Linear)]):
+        # filter_metrics["l2_norm"][f"fc{i+1}"] = torch.linalg.norm(fc.weight, dim=1).mean().item()
 
     return filter_metrics
 
@@ -266,7 +290,7 @@ def evaluate_symmetry(env, agent, args,
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
-    x = 0*torch.randn((1,1,16,16))
+    x = torch.randn((1,1,16,16))
     x[...,4:6,4:6] = 10
     x[...,12:14,12:14] = 10
     dhw = 4*torch.rand(size=(1,2))-2
@@ -277,9 +301,11 @@ if __name__ == "__main__":
     x_shift = shift2d(x, dhw)
     x_affine = affine2d(x, dhw, dth)
 
-    f,ax = plt.subplots(1,3, figsize=(9,3))
+    f,ax = plt.subplots(1,2, figsize=(9,3))
+    ax[0].set_title('original')
     ax[0].imshow(x.squeeze())
+    ax[1].set_title('shift')
     ax[1].imshow(x_shift.squeeze())
-    ax[2].imshow(x_affine.squeeze())
+    # ax[2].imshow(x_affine.squeeze())
     [a.axis('off') for a in ax]
     plt.show()

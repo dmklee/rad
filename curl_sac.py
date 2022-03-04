@@ -6,8 +6,7 @@ import copy
 import math
 
 import utils
-# from encoder import make_encoder
-from encoder_refactored import make_encoder
+from encoder import make_encoder
 import data_augs as rad
 
 LOG_FREQ = 10000
@@ -49,19 +48,14 @@ def weight_init(m):
 class Actor(nn.Module):
     """MLP actor network."""
     def __init__(
-        self, obs_shape, action_shape, hidden_dim, encoder_type, encoder_fmap_shifts,
-        encoder_feature_dim, encoder_dropout, encoder_final_fmap_dropout, encoder_final_fmap_blur,
-        encoder_final_fmap_actfn, log_std_min, log_std_max, num_layers, num_filters
+        self, obs_shape, action_shape, hidden_dim, encoder_name,
+        log_std_min, log_std_max, num_layers, num_filters, encoder_feature_dim
     ):
         super().__init__()
 
         self.encoder = make_encoder(
-            encoder_type, obs_shape, encoder_fmap_shifts,
-            encoder_feature_dim, num_layers,
-            num_filters, output_logits=True, dropout=encoder_dropout,
-            final_fmap_dropout=encoder_final_fmap_dropout,
-            final_fmap_blur=encoder_final_fmap_blur,
-            final_fmap_actfn=encoder_final_fmap_actfn,
+            encoder_name, obs_shape, num_layers,
+            num_filters, encoder_feature_dim, output_logits=True,
         )
 
         self.log_std_min = log_std_min
@@ -79,10 +73,16 @@ class Actor(nn.Module):
     def reset_weights(self):
         self.apply(weight_init)
 
-    def forward(
-        self, obs, compute_pi=True, compute_log_pi=True, detach_encoder=False, sample_augs=False,
+    def forward(self, obs, obs_shifts=None, compute_pi=True,
+                compute_log_pi=True, detach_encoder=False,
+                aug_finalfmap=False, unaug_finalfmap=False,
+                sample_augs=False,
     ):
-        obs = self.encoder(obs, detach=detach_encoder, sample_augs=sample_augs)
+        obs = self.encoder(obs, obs_shifts, detach=detach_encoder,
+                           aug_finalfmap=aug_finalfmap,
+                           unaug_finalfmap=unaug_finalfmap,
+                           sample_augs=sample_augs,
+                          )
 
         obs = self.trunk[1](self.trunk[0](obs))
         self.outputs['fc1'] = obs
@@ -149,19 +149,15 @@ class QFunction(nn.Module):
 class Critic(nn.Module):
     """Critic network, employes two q-functions."""
     def __init__(
-        self, obs_shape, action_shape, hidden_dim, encoder_type, encoder_fmap_shifts,
-        encoder_feature_dim, encoder_dropout, encoder_final_fmap_dropout, encoder_final_fmap_blur,
-        encoder_final_fmap_actfn, num_layers, num_filters
+        self, obs_shape, action_shape, hidden_dim, encoder_name,
+        num_layers, num_filters, encoder_feature_dim
     ):
         super().__init__()
 
 
         self.encoder = make_encoder(
-            encoder_type, obs_shape, encoder_fmap_shifts, encoder_feature_dim, num_layers,
-            num_filters, output_logits=True, dropout=encoder_dropout,
-            final_fmap_dropout=encoder_final_fmap_dropout,
-            final_fmap_blur=encoder_final_fmap_blur,
-            final_fmap_actfn=encoder_final_fmap_actfn,
+            encoder_name, obs_shape, num_layers,
+            num_filters, encoder_feature_dim, output_logits=True,
         )
 
         self.Q1 = QFunction(
@@ -177,9 +173,15 @@ class Critic(nn.Module):
     def reset_weights(self):
         self.apply(weight_init)
 
-    def forward(self, obs, action, detach_encoder=False, sample_augs=False):
+    def forward(self, obs, action, obs_shifts=None, detach_encoder=False,
+                aug_finalfmap=False, unaug_finalfmap=False, sample_augs=False,
+               ):
         # detach_encoder allows to stop gradient propogation to encoder
-        obs = self.encoder(obs, detach=detach_encoder, sample_augs=sample_augs)
+        obs = self.encoder(obs, obs_shifts, detach=detach_encoder,
+                           aug_finalfmap=aug_finalfmap,
+                           unaug_finalfmap=unaug_finalfmap,
+                           sample_augs=sample_augs,
+                          )
 
         q1 = self.Q1(obs, action)
         q2 = self.Q2(obs, action)
@@ -272,14 +274,7 @@ class RadSacAgent(object):
         critic_beta=0.9,
         critic_tau=0.005,
         critic_target_update_freq=2,
-        encoder_type='pixel',
-        encoder_fmap_shifts=':::',
-        encoder_dropout='',
-        encoder_final_fmap_dropout=0,
-        encoder_final_fmap_blur=0,
-        encoder_final_fmap_actfn='relu',
-        encoder_final_fmap_reg_gamma=0,
-        encoder_final_fmap_reg_px=0,
+        encoder_name='pixel',
         encoder_feature_dim=50,
         encoder_lr=1e-3,
         encoder_tau=0.005,
@@ -302,48 +297,40 @@ class RadSacAgent(object):
         self.image_size = obs_shape[-1]
         self.latent_dim = latent_dim
         self.detach_encoder = detach_encoder
-        self.encoder_type = encoder_type
+        self.encoder_name = encoder_name
         self.data_augs = data_augs
 
-        self.encoder_final_fmap_reg_gamma = encoder_final_fmap_reg_gamma
-        self.encoder_final_fmap_reg_px = encoder_final_fmap_reg_px
-
-        self.augs_funcs = {}
-
         aug_to_func = {
-                'crop':rad.random_crop,
-                'grayscale':rad.random_grayscale,
-                'cutout':rad.random_cutout,
-                'cutout_color':rad.random_cutout_color,
-                'flip':rad.random_flip,
-                'rotate':rad.random_rotation,
-                'rand_conv':rad.random_convolution,
-                'color_jitter':rad.random_color_jitter,
-                'translate':rad.random_translate,
-                'no_aug':rad.no_aug,
+                'aug_discrete' : rad.random_crop,
+                'aug_even' : rad.random_crop,
+                'aug_continuous' : rad.random_crop,
+                'aug_cnn' : rad.random_crop,
+                'aug_mlp' : rad.random_crop_finalfmap,
+                'aug_qpred' : rad.random_crop,
+                'aug_qtarget' : rad.random_crop,
+                'no_aug' : rad.no_aug,
             }
 
-        for aug_name in self.data_augs.split('-'):
-            if len(aug_name):
-                assert aug_name in aug_to_func, 'invalid data aug string'
-                self.augs_funcs[aug_name] = aug_to_func[aug_name]
+        self.aug_func = aug_to_func[self.data_augs]
+        self.aug_obs = self.data_augs != 'aug_qtarget'
+        self.aug_next_obs = self.data_augs != 'aug_qpred'
+        self.aug_finalfmap = self.data_augs == 'aug_mlp'
+        self.unaug_finalfmap = self.data_augs == 'aug_cnn'
 
         self.actor = Actor(
-            obs_shape, action_shape, hidden_dim, encoder_type, encoder_fmap_shifts,
-            encoder_feature_dim, encoder_dropout, encoder_final_fmap_dropout, encoder_final_fmap_blur,
-            encoder_final_fmap_actfn, actor_log_std_min, actor_log_std_max, num_layers, num_filters
+            obs_shape, action_shape, hidden_dim, encoder_name,
+            actor_log_std_min, actor_log_std_max, num_layers, num_filters,
+            encoder_feature_dim
         ).to(device)
 
         self.critic = Critic(
-            obs_shape, action_shape, hidden_dim, encoder_type, encoder_fmap_shifts,
-            encoder_feature_dim, encoder_dropout, encoder_final_fmap_dropout, encoder_final_fmap_blur,
-            encoder_final_fmap_actfn, num_layers, num_filters
+            obs_shape, action_shape, hidden_dim, encoder_name,
+            num_layers, num_filters, encoder_feature_dim
         ).to(device)
 
         self.critic_target = Critic(
-            obs_shape, action_shape, hidden_dim, encoder_type, encoder_fmap_shifts,
-            encoder_feature_dim, encoder_dropout, encoder_final_fmap_dropout, encoder_final_fmap_blur,
-            encoder_final_fmap_actfn, num_layers, num_filters
+            obs_shape, action_shape, hidden_dim, encoder_name,
+            num_layers, num_filters, encoder_feature_dim
         ).to(device)
 
         self.critic_target.load_state_dict(self.critic.state_dict())
@@ -351,11 +338,12 @@ class RadSacAgent(object):
         # tie encoders between actor and critic, and CURL and critic
         self.actor.encoder.copy_conv_weights_from(self.critic.encoder)
 
-        self.log_alpha = torch.tensor(np.log(init_temperature)).to(device)
-        self.log_alpha.requires_grad = True
+        log_alpha_data = torch.tensor(np.log(init_temperature), dtype=torch.float32, device=device)
+        self.log_alpha = torch.nn.Parameter(data=log_alpha_data, requires_grad=True)
+
         # set target entropy to -|A|
         self.target_entropy = -np.prod(action_shape)
-        
+
         # optimizers
         self.actor_optimizer = torch.optim.Adam(
             self.actor.parameters(), lr=actor_lr, betas=(actor_beta, 0.999)
@@ -369,19 +357,6 @@ class RadSacAgent(object):
             [self.log_alpha], lr=alpha_lr, betas=(alpha_beta, 0.999)
         )
 
-        # if self.encoder_type == 'pixel':
-            # # create CURL encoder (the 128 batch size is probably unnecessary)
-            # self.CURL = CURL(obs_shape, encoder_feature_dim,
-                        # self.latent_dim, self.critic,self.critic_target, output_type='continuous').to(self.device)
-
-            # # optimizer for critic encoder for reconstruction loss
-            # self.encoder_optimizer = torch.optim.Adam(
-                # self.critic.encoder.parameters(), lr=encoder_lr
-            # )
-
-            # self.cpc_optimizer = torch.optim.Adam(
-                # self.CURL.parameters(), lr=encoder_lr
-            # )
         self.cross_entropy_loss = nn.CrossEntropyLoss()
 
         self.train()
@@ -391,8 +366,6 @@ class RadSacAgent(object):
         self.training = training
         self.actor.train(training)
         self.critic.train(training)
-        # if self.encoder_type == 'pixel':
-            # self.CURL.train(training)
 
     @property
     def alpha(self):
@@ -417,33 +390,35 @@ class RadSacAgent(object):
             mu, pi, _, _ = self.actor(obs, compute_log_pi=False)
             return pi.cpu().data.numpy().flatten()
 
-    def update_critic(self, obs, action, reward, next_obs, not_done, L, step):
+    def update_critic(self, obs, action, reward, next_obs, not_done, info, L, step):
         with torch.no_grad():
-            _, policy_action, log_pi, _ = self.actor(next_obs, sample_augs=True)
-            target_Q1, target_Q2 = self.critic_target(next_obs, policy_action, sample_augs=True)
+            _, policy_action, log_pi, _ = self.actor(next_obs, info['next_obs_shifts'],
+                                                     aug_finalfmap=self.aug_finalfmap,
+                                                     unaug_finalfmap=self.aug_finalfmap,
+                                                     sample_augs=True,
+                                                    )
+            target_Q1, target_Q2 = self.critic_target(next_obs, policy_action,
+                                                      info['next_obs_shifts'],
+                                                      aug_finalfmap=self.aug_finalfmap,
+                                                      unaug_finalfmap=self.unaug_finalfmap,
+                                                      sample_augs=True,
+                                                     )
             target_V = torch.min(target_Q1,
                                  target_Q2) - self.alpha.detach() * log_pi
             target_Q = reward + (not_done * self.discount * target_V)
 
         # get current Q estimates
         current_Q1, current_Q2 = self.critic(
-            obs, action, detach_encoder=self.detach_encoder, sample_augs=True)
+            obs, action, info['obs_shifts'], detach_encoder=self.detach_encoder,
+            aug_finalfmap=self.aug_finalfmap, unaug_finalfmap=self.aug_finalfmap,
+            sample_augs=True,
+        )
 
         critic_loss = F.mse_loss(current_Q1,
                                  target_Q) + F.mse_loss(current_Q2, target_Q)
 
-        if self.encoder_final_fmap_reg_gamma > 1e-6:
-            gamma = self.encoder_final_fmap_reg_gamma
-            px = self.encoder_final_fmap_reg_px
-            fmap = self.critic.encoder.outputs['conv4']
-            reg_loss = gamma * F.mse_loss(fmap[:,:,px:,px:], fmap[:,:,:-px,:-px])
-
-            critic_loss += reg_loss
-
         if step % self.log_interval == 0:
             L.log('train_critic/loss', critic_loss, step)
-            if self.encoder_final_fmap_reg_gamma > 1e-6:
-                L.log('train_critic/reg_loss', reg_loss, step)
 
         # Optimize the critic
         self.critic_optimizer.zero_grad()
@@ -452,10 +427,16 @@ class RadSacAgent(object):
 
         self.critic.log(L, step)
 
-    def update_actor_and_alpha(self, obs, L, step):
+    def update_actor_and_alpha(self, obs, info, L, step):
         # detach encoder, so we don't update it with the actor loss
-        _, pi, log_pi, log_std = self.actor(obs, detach_encoder=True, sample_augs=True)
-        actor_Q1, actor_Q2 = self.critic(obs, pi, detach_encoder=True, sample_augs=True)
+        _, pi, log_pi, log_std = self.actor(obs, info['obs_shifts'], detach_encoder=True,
+                                            aug_finalfmap=self.aug_finalfmap,
+                                            unaug_finalfmap=self.unaug_finalfmap,
+                                            sample_augs=True)
+        actor_Q1, actor_Q2 = self.critic(obs, pi, info['obs_shifts'], detach_encoder=True,
+                                         aug_finalfmap=self.aug_finalfmap,
+                                         unaug_finalfmap=self.unaug_finalfmap,
+                                         sample_augs=True)
 
         actor_Q = torch.min(actor_Q1, actor_Q2)
         actor_loss = (self.alpha.detach() * log_pi - actor_Q).mean()
@@ -484,45 +465,18 @@ class RadSacAgent(object):
         alpha_loss.backward()
         self.log_alpha_optimizer.step()
 
-    def update_cpc(self, obs_anchor, obs_pos, cpc_kwargs, L, step):
-        
-        # time flips 
-        """
-        time_pos = cpc_kwargs["time_pos"]
-        time_anchor= cpc_kwargs["time_anchor"]
-        obs_anchor = torch.cat((obs_anchor, time_anchor), 0)
-        obs_pos = torch.cat((obs_anchor, time_pos), 0)
-        """
-        z_a = self.CURL.encode(obs_anchor)
-        z_pos = self.CURL.encode(obs_pos, ema=True)
-        
-        logits = self.CURL.compute_logits(z_a, z_pos)
-        labels = torch.arange(logits.shape[0]).long().to(self.device)
-        loss = self.cross_entropy_loss(logits, labels)
-        
-        self.encoder_optimizer.zero_grad()
-        self.cpc_optimizer.zero_grad()
-        loss.backward()
-
-        self.encoder_optimizer.step()
-        self.cpc_optimizer.step()
-        if step % self.log_interval == 0:
-            L.log('train/curl_loss', loss, step)
-
-
     def update(self, replay_buffer, L, step):
-        if self.encoder_type.find('pixel') > -1:
-            obs, action, reward, next_obs, not_done = replay_buffer.sample_rad(self.augs_funcs)
-        else:
-            obs, action, reward, next_obs, not_done = replay_buffer.sample_proprio()
+        obs, action, reward, next_obs, not_done, info = replay_buffer.sample_rad(self.aug_func,
+                                                                                 aug_obs=self.aug_obs,
+                                                                                 aug_next_obs=self.aug_next_obs)
     
         if step % self.log_interval == 0:
             L.log('train/batch_reward', reward.mean(), step)
 
-        self.update_critic(obs, action, reward, next_obs, not_done, L, step)
+        self.update_critic(obs, action, reward, next_obs, not_done, info, L, step)
 
         if step % self.actor_update_freq == 0:
-            self.update_actor_and_alpha(obs, L, step)
+            self.update_actor_and_alpha(obs, info, L, step)
 
         if step % self.critic_target_update_freq == 0:
             utils.soft_update_params(
@@ -536,9 +490,6 @@ class RadSacAgent(object):
                 self.encoder_tau
             )
         
-        #if step % self.cpc_update_freq == 0 and self.encoder_type == 'pixel':
-        #    obs_anchor, obs_pos = cpc_kwargs["obs_anchor"], cpc_kwargs["obs_pos"]
-        #    self.update_cpc(obs_anchor, obs_pos,cpc_kwargs, L, step)
 
     def save(self, model_dir, step):
         torch.save(
@@ -564,8 +515,9 @@ class RadSacAgent(object):
     def load(self, model_dir, step):
         self.actor.load_state_dict(
             torch.load('%s/actor_%s.pt' % (model_dir, step), map_location=self.device)
+            # torch.load('%s/actor.pt' % model_dir, map_location=self.device)
         )
-        self.critic.load_state_dict(
-            torch.load('%s/critic_%s.pt' % (model_dir, step), map_location=self.device)
-        )
+        # self.critic.load_state_dict(
+            # torch.load('%s/critic_%s.pt' % (model_dir, step), map_location=self.device)
+        # )
  

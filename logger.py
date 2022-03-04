@@ -35,9 +35,9 @@ class AverageMeter(object):
 
 
 class MetersGroup(object):
-    def __init__(self, file_name, formating):
+    def __init__(self, file_name, formating, remove_old):
         self._file_name = file_name
-        if os.path.exists(file_name):
+        if remove_old and os.path.exists(file_name):
             os.remove(file_name)
         self._formating = formating
         self._meters = defaultdict(AverageMeter)
@@ -91,7 +91,7 @@ class MetersGroup(object):
 
 
 class Logger(object):
-    def __init__(self, log_dir, use_tb=True, config='rl'):
+    def __init__(self, log_dir, use_tb=True, config='rl', remove_old=True):
         self._log_dir = log_dir
         if use_tb:
             tb_dir = os.path.join(log_dir, 'tb')
@@ -102,11 +102,13 @@ class Logger(object):
             self._sw = None
         self._train_mg = MetersGroup(
             os.path.join(log_dir, 'train.log'),
-            formating=FORMAT_CONFIG[config]['train']
+            formating=FORMAT_CONFIG[config]['train'],
+            remove_old=remove_old,
         )
         self._eval_mg = MetersGroup(
             os.path.join(log_dir, 'eval.log'),
-            formating=FORMAT_CONFIG[config]['eval']
+            formating=FORMAT_CONFIG[config]['eval'],
+            remove_old=remove_old,
         )
 
     def _try_sw_log(self, key, value, step):

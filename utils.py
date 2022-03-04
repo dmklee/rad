@@ -9,6 +9,8 @@ from torch.utils.data import Dataset, DataLoader
 import time
 from skimage.util.shape import view_as_windows
 
+from data_augs import no_aug
+
 class Bunch(object):
     def __init__(self, adict):
         self.__dict__.update(adict)
@@ -29,7 +31,7 @@ class eval_mode(object):
         return False
 
 
-def soft_update_params(net, target_net, tau):
+def soft_update_params(net: nn.Module, target_net: nn.Module, tau: float):
     for param, target_param in zip(net.parameters(), target_net.parameters()):
         target_param.data.copy_(
             tau * param.data + (1 - tau) * target_param.data
@@ -126,59 +128,18 @@ class ReplayBuffer(Dataset):
         not_dones = torch.as_tensor(self.not_dones[idxs], device=self.device)
         return obses, actions, rewards, next_obses, not_dones
 
-    def sample_cpc(self):
-
-        start = time.time()
+    def sample_rad(self, aug_func=None, aug_obs=True, aug_next_obs=True):
         idxs = np.random.randint(
             0, self.capacity if self.full else self.idx, size=self.batch_size
         )
       
-        obses = self.obses[idxs]
-        next_obses = self.next_obses[idxs]
-        pos = obses.copy()
+        obses = self.obses[idxs].astype(np.float32) / 255.
+        next_obses = self.next_obses[idxs].astype(np.float32) / 255.
 
-        obses = fast_random_crop(obses, self.image_size)
-        next_obses = fast_random_crop(next_obses, self.image_size)
-        pos = fast_random_crop(pos, self.image_size)
-    
-        obses = torch.as_tensor(obses, device=self.device).float()
-        next_obses = torch.as_tensor(
-            next_obses, device=self.device
-        ).float()
-        actions = torch.as_tensor(self.actions[idxs], device=self.device)
-        rewards = torch.as_tensor(self.rewards[idxs], device=self.device)
-        not_dones = torch.as_tensor(self.not_dones[idxs], device=self.device)
-
-        pos = torch.as_tensor(pos, device=self.device).float()
-        cpc_kwargs = dict(obs_anchor=obses, obs_pos=pos,
-                          time_anchor=None, time_pos=None)
-
-        return obses, actions, rewards, next_obses, not_dones, cpc_kwargs
-
-    def sample_rad(self,aug_funcs):
-        
-        # augs specified as flags
-        # curl_sac organizes flags into aug funcs
-        # passes aug funcs into sampler
-
-
-        idxs = np.random.randint(
-            0, self.capacity if self.full else self.idx, size=self.batch_size
-        )
-      
-        obses = self.obses[idxs]
-        next_obses = self.next_obses[idxs]
-        if aug_funcs:
-            for aug,func in aug_funcs.items():
-                # apply crop and cutout first
-                if 'crop' in aug or 'cutout' in aug:
-                    obses = func(obses)
-                    next_obses = func(next_obses)
-                elif 'translate' in aug: 
-                    og_obses = center_crop_images(obses, self.pre_image_size)
-                    og_next_obses = center_crop_images(next_obses, self.pre_image_size)
-                    obses, rndm_idxs = func(og_obses, self.image_size, return_random_idxs=True)
-                    next_obses = func(og_next_obses, self.image_size, **rndm_idxs)                     
+        # augment after converting to float
+        if aug_func is not None:
+            obses, obs_shifts = aug_func(obses) if aug_obs else no_aug(obses)
+            next_obses, next_obs_shifts = aug_func(next_obses) if aug_obs else no_aug(next_obses)
 
         obses = torch.as_tensor(obses, device=self.device).float()
         next_obses = torch.as_tensor(next_obses, device=self.device).float()
@@ -186,19 +147,9 @@ class ReplayBuffer(Dataset):
         rewards = torch.as_tensor(self.rewards[idxs], device=self.device)
         not_dones = torch.as_tensor(self.not_dones[idxs], device=self.device)
 
-        obses = obses / 255.
-        next_obses = next_obses / 255.
-
-        # augmentations go here
-        if aug_funcs:
-            for aug,func in aug_funcs.items():
-                # skip crop and cutout augs
-                if 'crop' in aug or 'cutout' in aug or 'translate' in aug:
-                    continue
-                obses = func(obses)
-                next_obses = func(next_obses)
-
-        return obses, actions, rewards, next_obses, not_dones
+        info = dict(obs_shifts=torch.tensor(obs_shifts, device=self.device).float(),
+                    next_obs_shifts=torch.tensor(next_obs_shifts, device=self.device).float())
+        return obses, actions, rewards, next_obses, not_dones, info
 
     def save(self, save_dir):
         if self.idx == self.last_save:

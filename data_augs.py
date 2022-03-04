@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import scipy.ndimage
 import torch
+import torchvision
 import torch.nn as nn
 from TransformLayer import ColorJitterLayer
 
@@ -19,10 +20,66 @@ def random_crop(imgs, out=84):
     h1 = np.random.randint(0, crop_max, n)
     cropped = np.empty((n, c, out, out), dtype=imgs.dtype)
     for i, (img, w11, h11) in enumerate(zip(imgs, w1, h1)):
-        
         cropped[i] = img[:, h11:h11 + out, w11:w11 + out]
-    return cropped
 
+    # order of shifts is such that it works with `equi_utils.affine2d`
+    # shifts are in 'new pixels'
+    mid = (h-out)/2
+    return cropped, np.stack((w1-mid, h1-mid), axis=1).astype(np.float32)
+
+def random_crop_finalfmap(imgs, out=84):
+    '''generates the equivalent shifts that could be applied to final feature
+    map that would be equivalent to `random_crop` on input.
+
+    returns shifts that should be applied to finalfmap after taking into account
+    downsize factor
+    '''
+    n, c, h, w = imgs.shape
+    crop_max = (h - out)/2
+    dhw = crop_max * (2*torch.rand(size=(n,2))-1)
+
+    cropped = imgs[:, :, int(crop_max):int(crop_max) + out, int(crop_max):int(crop_max) + out]
+    return cropped, dhw.numpy()
+
+def random_crop_even(imgs, out=84):
+    '''random crop but only by shifts of even integer amounts; encoder has ds=2
+    so should be perfectly equivariant
+    '''
+    n, c, h, w = imgs.shape
+    crop_max = h - out + 1
+    w1 = 2*np.random.randint(0, (h-out)//2+1, n)
+    h1 = 2*np.random.randint(0, (h-out)//2+1, n)
+    cropped = np.empty((n, c, out, out), dtype=imgs.dtype)
+    for i, (img, w11, h11) in enumerate(zip(imgs, w1, h1)):
+        cropped[i] = img[:, h11:h11 + out, w11:w11 + out]
+
+    mid = (h-out)/2
+    return cropped, np.stack((w1-mid, h1-mid), axis=1).astype(np.float32)
+
+def random_crop_continuous(imgs, out=84):
+    '''test that this is reasonably fast'''
+    n, c, h, w = imgs.shape
+    assert h == w, 'havent tested non square images yet'
+    crop_max = (h - out)/2
+    t_imgs = torch.from_numpy(imgs.astype(np.float32))
+
+    dhw = crop_max * (2*torch.rand(size=(n,2))-1)
+    affine_matrix = torch.zeros((n, 2, 3), dtype=torch.float32)
+    affine_matrix[:,0,2] = 2 * dhw[:,0] / h
+    affine_matrix[:,1,2] = 2 * dhw[:,1] / h
+    affine_matrix[:,0,0] = 1
+    affine_matrix[:,1,1] = 1
+    grid = torch.nn.functional.affine_grid(affine_matrix, t_imgs.size(),
+                                           align_corners=True)
+
+    aug_imgs = nn.functional.grid_sample(t_imgs, grid,
+                                          mode='bilinear',
+                                          padding_mode='zeros',
+                                          align_corners=True)
+    cropped = torchvision.transforms.functional.crop(aug_imgs, int(crop_max),
+                                                     int(crop_max), out, out,
+                                                    ).numpy()
+    return cropped, dhw.numpy()
 
 def grayscale(imgs):
     # imgs: b x c x h x w
@@ -270,7 +327,7 @@ def random_pixel_shift(imgs, output_size, min_shift, max_shift, subpixel=False):
     return pixel_shift(imgs, output_size, dh, dw), dh, dw
 
 def no_aug(x):
-    return x
+    return x, np.zeros((2, x.shape[0]), dtype=int)
 
 if __name__ == '__main__':
     import time 
@@ -288,6 +345,24 @@ if __name__ == '__main__':
 
     x = torch.from_numpy(x).to(device)
     x = x.float() / 255.
+
+    import matplotlib.pyplot as plt
+    plt.style.use('seaborn')
+
+    f, ax = plt.subplots(1,3)
+    out = 50
+    cropped, shifts = random_crop(x.cpu().numpy(), out)
+    print(shifts)
+    from utils import center_crop_images
+    ax[1].imshow(center_crop_images(x.cpu(), out)[1,0])
+    ax[0].imshow(cropped[1,0])
+    from equi_utils import affine2d
+    uncropped = affine2d(torch.tensor(cropped), -1*torch.tensor(shifts))
+    ax[2].imshow(uncropped[1,0])
+    plt.show()
+    exit()
+
+
 
     # crop
     t = now()
@@ -321,14 +396,24 @@ if __name__ == '__main__':
     t = now()
     random_color_jitter(x)
     s8,tot8 = secs(t)
+    # crop_even
+    t = now()
+    random_crop_even(x.cpu().numpy(),64)
+    s9,tot9 = secs(t)
+    # crop_continuous
+    t = now()
+    random_crop_continuous(x.cpu().numpy(),64)
+    s10,tot10 = secs(t)
     
-    print(tabulate([['Crop', s1,tot1], 
-                    ['Grayscale', s2,tot2], 
-                    ['Normal Cutout', s3,tot3], 
-                    ['Color Cutout', s4,tot4], 
-                    ['Flip', s5,tot5], 
-                    ['Rotate', s6,tot6], 
-                    ['Rand Conv', s7,tot7], 
-                    ['Color Jitter', s8,tot8]], 
+    print(tabulate([['Crop', s1,tot1],
+                    ['Grayscale', s2,tot2],
+                    ['Normal Cutout', s3,tot3],
+                    ['Color Cutout', s4,tot4],
+                    ['Flip', s5,tot5],
+                    ['Rotate', s6,tot6],
+                    ['Rand Conv', s7,tot7],
+                    ['Color Jitter', s8,tot8],
+                    ['Crop Even', s9,tot9],
+                    ['Crop Continuous', s10,tot10]],
                     headers=['Data Aug', 'Time / batch (secs)', 'Time / 100k steps (mins)']))
 

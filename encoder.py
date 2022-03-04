@@ -1,18 +1,112 @@
+import numpy as np
 import torch
 import torch.nn as nn
+from torchvision.transforms import GaussianBlur
 from antialiased_cnns import BlurPool
 
 from equi_utils import affine2d
+from utils import center_crop_images
+
+
+class SpatialMax2d(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x):
+        # assumes x is shape (B, C, H, W)
+        return torch.max(torch.flatten(x,2), dim=-1)[0]
+
+class Index2d(nn.Module):
+    def __init__(self, img_size):
+        super().__init__()
+        self.theta = torch.tensor(((1,0,0),(0,1,0)), dtype=torch.float32)
+
+    def forward(self, x):
+        # input is (B,C,H,W), output is (B,C+2,H,W)
+        theta = self.theta.to(x.device).repeat(x.size(0), 1,1)
+        coords = torch.nn.functional.affine_grid(theta, x.size(), align_corners=True).permute(0,3,1,2)
+        return torch.concat([x, coords], dim=1)
 
 def tie_weights(src, trg):
     assert type(src) == type(trg)
     trg.weight = src.weight
     trg.bias = src.bias
 
+def parse_fmap_shifts(fmap_shifts, num_layers):
+    shifts = [None for _ in range(num_layers)]
+    if fmap_shifts != '':
+        for layer_id, desc in enumerate(fmap_shifts.split(':')):
+            if desc != '':
+                if ',' in desc:
+                    shifts[layer_id] = tuple([float(z) for z in desc.split(',')])
+                else:
+                    shifts[layer_id] = (float(desc), 0)
 
-OUT_DIM = {2: 39, 4: 35, 5: 33, 6: 31}
-OUT_DIM_64 = {2: 29, 4: 25, 6: 21}
-OUT_DIM_108 = {4: 47}
+    return shifts
+
+def parse_dropout(dropout, num_layers):
+    layers = [None for _ in range(num_layers)]
+    if dropout == 0.:
+        return layers
+    
+    for layer_id, a in enumerate(dropout.split(':')):
+        if a != '':
+            layers[layer_id] = nn.Dropout2d(float(a))
+    return layers
+
+def create_cnn(in_channels, filters_per_conv, downsampling_per_conv, downsampling_mode):
+    num_layers = len(filters_per_conv)
+    strides = downsampling_per_conv if downsampling_mode == 'stride' else num_layers*[1]
+
+    channels_list = [in_channels] + filters_per_conv
+    convs = nn.ModuleList(
+        [nn.Conv2d(channels_list[i], channels_list[i+1], 3, stride=strides[i]) for i in range(num_layers)]
+    )
+    if downsampling_mode == 'stride':
+        downsamplers = nn.ModuleList([nn.Identity() for i in range(num_layers)])
+    elif downsampling_mode == 'blurpool':
+        tmp = []
+        for n_filters, ds in zip(filters_per_conv, downsampling_per_conv):
+            tmp.append(BlurPool(n_filters, stride=ds) if ds != 1 else nn.Identity())
+            # tmp.append(nn.MaxPool2d(ds, ds, ceil_mode=True) if ds != 1 else nn.Identity())
+        downsamplers = nn.ModuleList(tmp)
+
+    return convs, downsamplers
+
+def create_projector(input_shape, output_dim, projection_style,
+                     prepooling_factor, projection_dim,
+                     indexed_projection):
+    '''projects from feature map of last conv to feature_dim'''
+    if projection_style == 'mlp':
+        projector = nn.Sequential(nn.Flatten(1),
+                                  nn.Linear(np.product(input_shape), output_dim))
+    elif projection_style == 'e2i':
+        layers = []
+        if prepooling_factor > 1:
+            layers.append(nn.AvgPool2d(prepooling_factor, prepooling_factor))
+        in_channels = input_shape[0]
+        if indexed_projection:
+            in_channels += 2
+            layers.append(Index2d(input_shape[1]))
+        layers.append(nn.Conv2d(in_channels, projection_dim, 1, stride=1))
+        layers.append(SpatialMax2d())
+        layers.append(nn.ReLU(True))
+        layers.append(nn.Linear(projection_dim, output_dim))
+        projector = nn.Sequential(*layers)
+    else:
+        raise TypeError('invalid value for projection_style')
+
+    ln = nn.LayerNorm(output_dim)
+
+    return projector, ln
+
+def calc_cnn_output_shape(obs_shape, filters_per_conv, downsampling_per_conv,
+                         k_size=3, padding=0):
+    # assumes kernel size of 3
+    size = obs_shape[-1]
+    for ds in downsampling_per_conv:
+        size = int((size + 2*padding - k_size)/ds + 1)
+    return (filters_per_conv[-1], size, size)
 
 class PixelEncoder(nn.Module):
     """Convolutional encoder of pixels observations."""
@@ -20,53 +114,58 @@ class PixelEncoder(nn.Module):
                  obs_shape,
                  fmap_shifts,
                  feature_dim,
-                 num_layers=2,
-                 num_filters=32,
+                 filters_per_conv,
+                 downsampling_per_conv,
+                 downsampling_mode='stride',
+                 projection_style='mlp',
                  output_logits=False,
                  dropout='',
+                 final_fmap_dropout=0.,
+                 final_fmap_blur=0.,
+                 final_fmap_actfn='relu',
+                 prepooling_factor=1,
+                 projection_dim=2056,
+                 indexed_projection=True,
                 ):
+        # print('filters_per_conv',filters_per_conv)
+        # print('downsampling_per_conv',downsampling_per_conv)
+        assert downsampling_mode in ('stride', 'blurpool')
+        assert projection_style in ('mlp', 'e2i')
         super().__init__()
-        self.ds_factors = {f'conv{i+1}':2 for i in range(num_layers)}
+        # self.ds_factors = {f'conv{i+1}':downsampling_per_conv[i] for i in range(len(downsampling_per_conv))}
+        self.ds_factors = {f'conv{i+1}':ds for i,ds in enumerate(np.cumprod(downsampling_per_conv))}
 
+        self.final_fmap_actfn = final_fmap_actfn
         assert len(obs_shape) == 3
         self.obs_shape = obs_shape
-        self.feature_dim = feature_dim
-        self.num_layers = num_layers
-        # try 2 5x5s with strides 2x2. with samep adding, it should reduce 84 to 21, so with valid, it should be even smaller than 21.
-        self.convs = nn.ModuleList(
-            [nn.Conv2d(obs_shape[0], num_filters, 3, stride=2)]
-        )
-        for i in range(num_layers - 1):
-            self.convs.append(nn.Conv2d(num_filters, num_filters, 3, stride=1))
+        self.feature_dim = feature_dim # output feature dimension
+        self.num_layers = len(filters_per_conv)
 
-        self.fmap_shifts = [None for _ in range(num_layers)]
-        if fmap_shifts != '':
-            for i, a in enumerate(fmap_shifts.split(':')):
-                if a == '':
-                    continue
-                if ',' in a:
-                    t,r = [float(z) for z in a.split(',')]
-                    self.fmap_shifts[i] = (t, r)
-                else:
-                    a = float(a)
-                    self.fmap_shifts[i] = (a, 0)
-        self.fmap_dropouts = [None for _ in range(num_layers)]
-        if dropout != '':
-            for i,a in enumerate(dropout.split(':')):
-                if a != '':
-                    self.fmap_dropouts[i] = nn.Dropout2d(float(a))
+        self.convs, self.downsamplers = create_cnn(in_channels=obs_shape[0],
+                                                   filters_per_conv=filters_per_conv,
+                                                   downsampling_per_conv=downsampling_per_conv,
+                                                   downsampling_mode=downsampling_mode)
 
-        if obs_shape[-1] == 108:
-            assert num_layers in OUT_DIM_108
-            out_dim = OUT_DIM_108[num_layers]
-        elif obs_shape[-1] == 64:
-            out_dim = OUT_DIM_64[num_layers]
+        self.fmap_shifts = parse_fmap_shifts(fmap_shifts, self.num_layers)
+        self.fmap_dropouts = parse_dropout(dropout, self.num_layers)
+
+        if final_fmap_dropout:
+            self.final_fmap_dropout = nn.Dropout(p=final_fmap_dropout)
         else:
-            out_dim = OUT_DIM[num_layers]
+            self.final_fmap_dropout = None
 
-        self.fc_aug = None
-        self.fc = nn.Linear(num_filters * out_dim * out_dim, self.feature_dim)
-        self.ln = nn.LayerNorm(self.feature_dim)
+        if final_fmap_blur:
+            self.final_fmap_blur = GaussianBlur(5, sigma=final_fmap_blur)
+        else:
+            self.final_fmap_blur = None
+
+        input_shape = calc_cnn_output_shape(obs_shape, filters_per_conv, downsampling_per_conv)
+        self.projector, self.ln = create_projector(input_shape=input_shape,
+                                                   output_dim=feature_dim,
+                                                   projection_style=projection_style,
+                                                   prepooling_factor=prepooling_factor,
+                                                   projection_dim=projection_dim,
+                                                   indexed_projection=indexed_projection)
 
         self.outputs = dict()
         self.output_logits = output_logits
@@ -82,35 +181,53 @@ class PixelEncoder(nn.Module):
 
         self.outputs['obs'] = obs
 
-        conv = torch.relu(self.convs[0](obs))
-        self.outputs['conv1'] = conv
-        if sample_augs and self.fmap_shifts[0] is not None:
-            dhw = self.fmap_shifts[0][0] * (2*torch.rand(size=(obs.size(0), 2), device=obs.device)-1)
-            dth = self.fmap_shifts[0][1] * (2*torch.rand(size=(obs.size(0), 1), device=obs.device)-1)
-            conv = affine2d(conv, dhw, dth)
-        if sample_augs and self.fmap_dropouts[0] is not None:
-            conv = self.fmap_dropouts[0](conv)
+        conv = obs
+        for i in range(self.num_layers):
+            if i == self.num_layers-1:
+                conv = {'relu' : torch.relu,
+                        'tanh' : torch.tanh,
+                       }[self.final_fmap_actfn](self.convs[i](conv))
+            else:
+                conv = torch.relu(self.convs[i](conv))
 
-        for i in range(1, self.num_layers):
-            conv = torch.relu(self.convs[i](conv))
-            self.outputs['conv%s' % (i + 1)] = conv
-            if sample_augs and self.fmap_shifts[i] is not None:
-                dhw = self.fmap_shifts[i][0] * (2*torch.rand(size=(obs.size(0), 2), device=obs.device)-1)
-                dth = self.fmap_shifts[i][1] * (2*torch.rand(size=(obs.size(0), 1), device=obs.device)-1)
-                conv = affine2d(conv, dhw, dth)
-            if sample_augs and self.fmap_dropouts[i] is not None:
-                conv = self.fmap_dropouts[i](conv)
+            conv = self.downsamplers[i](conv)
+            self.outputs[f'conv{i+1}'] = conv
+            if sample_augs:
+                if self.fmap_shifts[i] is not None:
+                    dhw = self.fmap_shifts[i][0] * (2*torch.rand(size=(obs.size(0), 2), device=obs.device)-1)
+                    dth = self.fmap_shifts[i][1] * (2*torch.rand(size=(obs.size(0), 1), device=obs.device)-1)
+                    conv = affine2d(conv, dhw, dth)
+                if self.fmap_dropouts[i] is not None:
+                    conv = self.fmap_dropouts[i](conv)
 
-        h = conv.view(conv.size(0), -1)
-        return h
+        # always blur
+        if self.final_fmap_blur is not None:
+            conv = self.final_fmap_blur(conv)
 
-    def forward(self, obs, detach=False, sample_augs=False):
-        h = self.forward_conv(obs, sample_augs)
+        # only dropout when sampling augmentations
+        if sample_augs and self.final_fmap_dropout is not None:
+            conv = self.final_fmap_dropout(conv)
+
+        return conv
+
+    def forward(self, obs, obs_shifts=None, detach=False, sample_augs=False,
+                aug_finalfmap=False, unaug_finalfmap=False,
+               ):
+        h = self.forward_conv(obs, sample_augs=sample_augs)
+
+        if unaug_finalfmap:
+            # assumes network has downsize factor of 2
+            h = affine2d(h, -0.5*obs_shifts.float())
+
+        if aug_finalfmap:
+            h = affine2d(h, 0.5*obs_shifts.float())
+            h = center_crop_images(h, 35)
+            # maybe you should center crop here!
 
         if detach:
             h = h.detach()
 
-        h_fc = self.fc(h)
+        h_fc = self.projector(h)
         self.outputs['fc0'] = h_fc
 
         h_norm = self.ln(h_fc)
@@ -145,306 +262,95 @@ class PixelEncoder(nn.Module):
 
         for i in range(self.num_layers):
             L.log_param('train_encoder/conv%s' % (i + 1), self.convs[i], step)
-        L.log_param('train_encoder/fc', self.fc, step)
+        # L.log_param('train_encoder/proj', self.projector, step)
         L.log_param('train_encoder/ln', self.ln, step)
 
-class PixelEncoder_narrow(PixelEncoder, nn.Module):
-    """Convolutional encoder of pixels observations."""
-    def __init__(self,
+
+_AVAILABLE_ENCODERS = ('pixel',
+                       'pixel_narrow',
+                       'pixel_narrow_e2i',
+                       'pixel_narrow_e2i_ind',
+                       'pixel_aa',
+                       # 'pixel_narrow_aa',
+                       # 'pixel_narrow_aa_e2i',
+                       # 'pixel_narrow_aa_e2i_ind'
+                      )
+
+def make_encoder(encoder_type,
                  obs_shape,
-                 fmap_shifts,
+                 num_layers,
+                 num_filters,
                  feature_dim,
-                 num_layers=2,
-                 num_filters=32,
                  output_logits=False,
                  dropout='',
-                ):
-        nn.Module.__init__(self)
-        assert len(obs_shape) == 3
-        self.obs_shape = obs_shape
-        self.feature_dim = feature_dim
-        self.num_layers = num_layers
-        # try 2 5x5s with strides 2x2. with samep adding, it should reduce 84 to 21, so with valid, it should be even smaller than 21.
-        self.convs = nn.ModuleList(
-            [nn.Conv2d(obs_shape[0], num_filters, 3, stride=2)]
-        )
-        for i in range(num_layers - 1):
-            self.convs.append(nn.Conv2d(num_filters, 2*num_filters, 3, stride=2 if i<2 else 1))
-            num_filters *= 2
-
-        out_dim = 7
-
-        self.fc = nn.Linear(num_filters * out_dim * out_dim, self.feature_dim)
-        self.ln = nn.LayerNorm(self.feature_dim)
-
-        self.outputs = dict()
-        self.output_logits = output_logits
-
-
-class AntiAliasedPixelEncoder(PixelEncoder):
-    def __init__(self, obs_shape, fmap_shifts, feature_dim, num_layers=2, num_filters=32, output_logits=False, *args):
-        super(PixelEncoder, self).__init__()
-
-        if fmap_shifts != '':
-            print('[WARNING]: internal data aug not supported for antialiased CNN')
-
-        assert len(obs_shape) == 3
-        self.obs_shape = obs_shape
-        self.feature_dim = feature_dim
-        self.num_layers = num_layers
-        self.convs = nn.ModuleList(
-            [nn.Conv2d(obs_shape[0], num_filters, 3, stride=1)]
-        )
-        for i in range(num_layers - 1):
-            self.convs.append(nn.Conv2d(num_filters, num_filters, 3, stride=1))
-        self.blurpool = BlurPool(num_filters, stride=2)
-
-        if obs_shape[-1] == 108:
-            assert num_layers in OUT_DIM_108
-            out_dim = OUT_DIM_108[num_layers]
-        elif obs_shape[-1] == 64:
-            out_dim = OUT_DIM_64[num_layers]
-        else:
-            out_dim = OUT_DIM[num_layers]
-
-        self.fc = nn.Linear(num_filters * out_dim * out_dim, self.feature_dim)
-        self.ln = nn.LayerNorm(self.feature_dim)
-
-        self.outputs = dict()
-        self.output_logits = output_logits
-
-    def forward_conv(self, obs, sample_augs=False):
-        if obs.max() > 1.:
-            obs = obs / 255.
-
-        self.outputs['obs'] = obs
-
-        conv = self.blurpool(torch.relu(self.convs[0](obs)))
-        self.outputs['conv1'] = conv
-
-        for i in range(1, self.num_layers):
-            conv = torch.relu(self.convs[i](conv))
-            self.outputs['conv%s' % (i + 1)] = conv
-
-        h = conv.view(conv.size(0), -1)
-        return h
-
-
-
-class Eq2InvPixelEncoder(PixelEncoder):
-    """Convolutional encoder of pixels observations."""
-    def __init__(self,
-                 obs_shape,
-                 fmap_shifts,
-                 feature_dim,
-                 num_layers=2,
-                 num_filters=32,
-                 output_logits=False,
-                 dropout='',
-                 proj_size=1024, # n_channels before pooling
-                 pool_fn='max',
-                 index_projection=True,
-                ):
-        super(PixelEncoder, self).__init__()
-
-        assert len(obs_shape) == 3
-        self.index_projection = index_projection
-        self.obs_shape = obs_shape
-        self.feature_dim = feature_dim
-        self.num_layers = num_layers
-        # try 2 5x5s with strides 2x2. with samep adding, it should reduce 84 to 21, so with valid, it should be even smaller than 21.
-        self.convs = nn.ModuleList(
-            [nn.Conv2d(obs_shape[0], num_filters, 3, stride=2)]
-        )
-        for i in range(num_layers - 1):
-            self.convs.append(nn.Conv2d(num_filters, num_filters, 3, stride=1))
-
-        self.prepool = nn.AvgPool2d(4, 4)
-        self.project = nn.Conv2d(num_filters+self.index_projection*2, proj_size, 1, stride=1)
-        if pool_fn == 'max':
-            # torch max with dim arg returns Tuple(max_vals, indices)
-            self.pool = lambda x: torch.max(torch.flatten(x,2), dim=-1)[0]
-        elif pool_fn == 'sum':
-            self.pool = lambda x: torch.sum(torch.flatten(x,2), dim=-1)
-        else:
-            raise TypeError('Arg, pool_fn, must be in {max, sum}')
-
-        self.fc_aug = None
-        self.fc = nn.Linear(proj_size, self.feature_dim)
-        self.ln = nn.LayerNorm(self.feature_dim)
-
-        self.outputs = dict()
-        self.output_logits = output_logits
-
-    def forward_conv(self, obs, sample_augs=False):
-        if obs.max() > 1.:
-            obs = obs / 255.
-
-        self.outputs['obs'] = obs
-
-        conv = torch.relu(self.convs[0](obs))
-        self.outputs['conv1'] = conv
-
-        for i in range(1, self.num_layers):
-            conv = torch.relu(self.convs[i](conv))
-            self.outputs['conv%s' % (i + 1)] = conv
-
-        conv = self.prepool(conv)
-        if self.index_projection:
-            theta = torch.tensor(((1,0,0),(0,1,0)), device=conv.device, dtype=torch.float32)
-            coords = torch.nn.functional.affine_grid(theta.repeat(conv.size(0),1,1),
-                                                  conv.size(), align_corners=True).permute(0,3,1,2)
-
-            conv = torch.concat([conv, coords], dim=1)
-        conv = torch.relu(self.project(conv))
-        self.outputs['projection'] = conv
-
-        h = self.pool(conv).view(conv.size(0),-1)
-        return h
-
-
-class Eq2InvPixelEncoder_narrow(PixelEncoder):
-    """Convolutional encoder of pixels observations."""
-    def __init__(self,
-                 obs_shape,
-                 fmap_shifts,
-                 feature_dim,
-                 num_layers=2,
-                 num_filters=32,
-                 output_logits=False,
-                 dropout='',
-                 proj_size=2056, # n_channels before pooling
-                 pool_fn='max',
-                 index_projection=True,
-                ):
-        super(PixelEncoder, self).__init__()
-
-        assert len(obs_shape) == 3
-        self.index_projection = index_projection
-        self.obs_shape = obs_shape
-        self.feature_dim = feature_dim
-        self.num_layers = num_layers
-        # try 2 5x5s with strides 2x2. with samep adding, it should reduce 84 to 21, so with valid, it should be even smaller than 21.
-        self.convs = nn.ModuleList(
-            [nn.Conv2d(obs_shape[0], num_filters, 3, stride=2)]
-        )
-        for i in range(num_layers - 1):
-            self.convs.append(nn.Conv2d(num_filters, 2*num_filters, 3, stride=2 if i<2 else 1))
-            num_filters *= 2
-
-        self.project = nn.Conv2d(num_filters+self.index_projection*2, proj_size, 1, stride=1)
-        if pool_fn == 'max':
-            # torch max with dim arg returns Tuple(max_vals, indices)
-            self.pool = lambda x: torch.max(torch.flatten(x,2), dim=-1)[0]
-        elif pool_fn == 'sum':
-            self.pool = lambda x: torch.sum(torch.flatten(x,2), dim=-1)
-        else:
-            raise TypeError('Arg, pool_fn, must be in {max, sum}')
-
-        self.fc_aug = None
-        self.fc = nn.Linear(proj_size, self.feature_dim)
-        self.ln = nn.LayerNorm(self.feature_dim)
-
-        self.outputs = dict()
-        self.output_logits = output_logits
-
-    def forward_conv(self, obs, sample_augs=False):
-        if obs.max() > 1.:
-            obs = obs / 255.
-
-        self.outputs['obs'] = obs
-
-        conv = torch.relu(self.convs[0](obs))
-        self.outputs['conv1'] = conv
-
-        for i in range(1, self.num_layers):
-            conv = torch.relu(self.convs[i](conv))
-            self.outputs['conv%s' % (i + 1)] = conv
-
-        if self.index_projection:
-            theta = torch.tensor(((1,0,0),(0,1,0)), device=conv.device, dtype=torch.float32)
-            coords = torch.nn.functional.affine_grid(theta.repeat(conv.size(0),1,1),
-                                                  conv.size(), align_corners=True).permute(0,3,1,2)
-
-            conv = torch.concat([conv, coords], dim=1)
-        conv = torch.relu(self.project(conv))
-        self.outputs['projection'] = conv
-
-        h = self.pool(conv).view(conv.size(0),-1)
-        return h
-
-
-class IdentityEncoder(nn.Module):
-    def __init__(self, obs_shape, fmap_shifts, feature_dim, num_layers, num_filters,*args):
-        super().__init__()
-
-        assert len(obs_shape) == 1
-        self.feature_dim = obs_shape[0]
-
-    def forward(self, obs, detach=False):
-        return obs
-
-    def copy_conv_weights_from(self, source):
-        pass
-
-    def log(self, L, step, log_freq):
-        pass
-
-
-_AVAILABLE_ENCODERS = {'pixel': PixelEncoder,
-                       'pixel_narrow': PixelEncoder_narrow,
-                       'pixel_aa': AntiAliasedPixelEncoder,
-                       'pixel_e2i': Eq2InvPixelEncoder,
-                       'pixel_e2i_narrow': Eq2InvPixelEncoder_narrow,
-                       'identity': IdentityEncoder}
-
-def make_encoder(
-    encoder_type, obs_shape, fmap_shifts, feature_dim, num_layers, num_filters,
-    output_logits=False, dropout='', *args, **kwargs
+                 fmap_shifts=':::',
+                 final_fmap_blur=0.,
+                 final_fmap_dropout=0.,
+                 final_fmap_actfn='relu',
 ):
-    if dropout == 0:
-        dropout = ''
     assert encoder_type in _AVAILABLE_ENCODERS
-    return _AVAILABLE_ENCODERS[encoder_type](
-        obs_shape, fmap_shifts, feature_dim, num_layers, num_filters, output_logits, dropout,
-    )
+
+    downsampling_mode = 'blurpool' if encoder_type.find('aa') > -1 else 'stride'
+    projection_style = 'e2i' if encoder_type.find('e2i') > -1 else 'mlp'
+    if encoder_type.find('narrow') > -1:
+        downsampling_per_conv = 3*[2] + (num_layers-3)*[1]
+        filters_per_conv = [num_filters * ds for ds in np.cumprod(downsampling_per_conv)]
+    else:
+        downsampling_per_conv = [2] + (num_layers-1)*[1]
+        filters_per_conv = num_layers * [num_filters]
+
+    indexed_projection = encoder_type.find('ind') > -1
+
+    return PixelEncoder(obs_shape,
+                        fmap_shifts,
+                        feature_dim,
+                        filters_per_conv,
+                        downsampling_per_conv,
+                        downsampling_mode=downsampling_mode,
+                        projection_style=projection_style,
+                        output_logits=output_logits,
+                        dropout=dropout,
+                        final_fmap_dropout=final_fmap_dropout,
+                        final_fmap_blur=final_fmap_blur,
+                        final_fmap_actfn=final_fmap_actfn,
+                        prepooling_factor=1,
+                        projection_dim=2056,
+                        indexed_projection=indexed_projection)
 
 if __name__ == "__main__":
+    import time
     # pixel
     device = torch.device('cuda')
     obs_shape = (9,84,84)
-    pixel_enc = PixelEncoder(obs_shape, '','',50, 4,32).to(device)
-    print(pixel_enc)
-    e2i_enc = Eq2InvPixelEncoder_narrow(obs_shape, '','',50, 4,32, proj_size=1024).to(device)
-    print(e2i_enc)
-    pixel_enc_narrow = PixelEncoder_narrow(obs_shape, '','',50, 4,32).to(device)
-    print(pixel_enc_narrow)
-
     B = 512
     obs = torch.rand((B, *obs_shape)).to(device)
-    import time
 
-    avg_time = 0
-    for _ in range(100):
-        t = time.time()
-        with torch.no_grad():
-            pixel_enc(obs)
-        avg_time += time.time()-t
-    print(f'pixel_enc: {avg_time}ms')
+    num_trials = 50
+    data = {}
+    feature_dim = 50
+    for encoder_type in _AVAILABLE_ENCODERS:
+        encoder = make_encoder(encoder_type, obs_shape, '', feature_dim, 4, 32).to(device)
+        optim = torch.optim.Adam(encoder.parameters(), lr=1e-3)
+        fp_time = 0
+        bp_time = 0
+        for _ in range(num_trials):
+            t = time.time()
+            out = encoder(obs)
+            fp_time += time.time()-t
 
-    avg_time = 0
-    for _ in range(100):
-        t = time.time()
-        with torch.no_grad():
-            pixel_enc_narrow(obs)
-        avg_time += time.time()-t
-    print(f'pixel_enc_narrow: {avg_time}ms')
+            t = time.time()
+            optim.zero_grad()
+            loss = out.sum()
+            loss.backward()
+            optim.step()
+            bp_time += time.time()-t
 
-    avg_time = 0
-    for _ in range(100):
-        t = time.time()
-        with torch.no_grad():
-            e2i_enc(obs)
-        avg_time += time.time()-t
-    print(f'e2i_enc: {avg_time}ms')
+        data[encoder_type] = {'num params' : sum(p.numel() for p in encoder.parameters())/1000000,
+                              'foward pass (ms)' : 1000*fp_time/num_trials,
+                              'backward pass (ms)' : 1000*bp_time/num_trials,}
+
+    for k, v in data.items():
+        print(f' ===== {k} ===== ')
+        print(v)
+
 

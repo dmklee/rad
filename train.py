@@ -97,14 +97,13 @@ def evaluate(env, agent, video, num_episodes, L, step, args):
         prefix = 'stochastic_' if sample_stochastically else ''
         for i in range(num_episodes):
             obs = env.reset()
-            video.init(enabled=(i == 0))
             done = False
             episode_reward = 0
             while not done:
                 # center crop image
-                if args.encoder_type.find('pixel')>=0 and 'crop' in args.data_augs:
+                if args.encoder_name.find('pixel')>=0 and 'crop' in args.data_augs:
                     obs = utils.center_crop_image(obs,args.image_size)
-                if args.encoder_type.find('pixel')>=0 and 'translate' in args.data_augs:
+                if args.encoder_name.find('pixel')>=0 and 'translate' in args.data_augs:
                     # first crop the center with pre_image_size
                     obs = utils.center_crop_image(obs, args.pre_transform_image_size)
                     # then translate cropped to center
@@ -115,10 +114,8 @@ def evaluate(env, agent, video, num_episodes, L, step, args):
                     else:
                         action = agent.select_action(obs / 255.)
                 obs, reward, done, _ = env.step(action)
-                video.record(env)
                 episode_reward += reward
 
-            video.save('%d.mp4' % step)
             L.log('eval/' + prefix + 'episode_reward', episode_reward, step)
             all_ep_rewards.append(episode_reward)
         
@@ -169,45 +166,42 @@ def make_agent(obs_shape, action_shape, args, device):
         args.encoder_final_fmap_reg_gamma = 0.
         args.encoder_final_fmap_reg_px = 0
 
-    if args.agent in ('rad_sac', 'pixel_sac'):
-        return RadSacAgent(
-            obs_shape=obs_shape,
-            action_shape=action_shape,
-            device=device,
-            hidden_dim=args.hidden_dim,
-            discount=args.discount,
-            init_temperature=args.init_temperature,
-            alpha_lr=args.alpha_lr,
-            alpha_beta=args.alpha_beta,
-            actor_lr=args.actor_lr,
-            actor_beta=args.actor_beta,
-            actor_log_std_min=args.actor_log_std_min,
-            actor_log_std_max=args.actor_log_std_max,
-            actor_update_freq=args.actor_update_freq,
-            critic_lr=args.critic_lr,
-            critic_beta=args.critic_beta,
-            critic_tau=args.critic_tau,
-            critic_target_update_freq=args.critic_target_update_freq,
-            encoder_type=args.encoder_type,
-            encoder_fmap_shifts=args.encoder_fmap_shifts,
-            encoder_dropout=args.encoder_dropout,
-            encoder_final_fmap_dropout=args.encoder_final_fmap_dropout,
-            encoder_final_fmap_blur=args.encoder_final_fmap_blur,
-            encoder_final_fmap_actfn=args.encoder_final_fmap_actfn,
-            encoder_final_fmap_reg_gamma=args.encoder_final_fmap_reg_gamma,
-            encoder_final_fmap_reg_px=args.encoder_final_fmap_reg_px,
-            encoder_feature_dim=args.encoder_feature_dim,
-            encoder_lr=args.encoder_lr,
-            encoder_tau=args.encoder_tau,
-            num_layers=args.num_layers,
-            num_filters=args.num_filters,
-            log_interval=args.log_interval,
-            detach_encoder=args.detach_encoder,
-            latent_dim=args.latent_dim,
-            data_augs=args.data_augs
-        )
-    else:
-        assert 'agent is not supported: %s' % args.agent
+    return RadSacAgent(
+        obs_shape=obs_shape,
+        action_shape=action_shape,
+        device=device,
+        hidden_dim=args.hidden_dim,
+        discount=args.discount,
+        init_temperature=args.init_temperature,
+        alpha_lr=args.alpha_lr,
+        alpha_beta=args.alpha_beta,
+        actor_lr=args.actor_lr,
+        actor_beta=args.actor_beta,
+        actor_log_std_min=args.actor_log_std_min,
+        actor_log_std_max=args.actor_log_std_max,
+        actor_update_freq=args.actor_update_freq,
+        critic_lr=args.critic_lr,
+        critic_beta=args.critic_beta,
+        critic_tau=args.critic_tau,
+        critic_target_update_freq=args.critic_target_update_freq,
+        encoder_name=args.encoder_name,
+        # encoder_fmap_shifts=args.encoder_fmap_shifts,
+        # encoder_dropout=args.encoder_dropout,
+        # encoder_final_fmap_dropout=args.encoder_final_fmap_dropout,
+        # encoder_final_fmap_blur=args.encoder_final_fmap_blur,
+        # encoder_final_fmap_actfn=args.encoder_final_fmap_actfn,
+        # encoder_final_fmap_reg_gamma=args.encoder_final_fmap_reg_gamma,
+        # encoder_final_fmap_reg_px=args.encoder_final_fmap_reg_px,
+        encoder_feature_dim=args.encoder_feature_dim,
+        encoder_lr=args.encoder_lr,
+        encoder_tau=args.encoder_tau,
+        num_layers=args.num_layers,
+        num_filters=args.num_filters,
+        log_interval=args.log_interval,
+        detach_encoder=args.detach_encoder,
+        latent_dim=args.latent_dim,
+        data_augs=args.data_augs
+    )
 
 def main(args):
     if args.seed == -1:
