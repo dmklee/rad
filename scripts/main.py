@@ -63,7 +63,7 @@ def add_defaults(args):
 
 
 def create_env_buffer_agent(args, device):
-    pre_transform_image_size = args.pre_transform_image_size if 'crop' in args.data_augs else args.image_size
+    pre_transform_image_size = args.pre_transform_image_size if args.data_augs!='no_aug' else args.image_size
 
     env = dmc2gym.make(domain_name=args.domain_name,
                        task_name=args.task_name,

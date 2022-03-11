@@ -101,13 +101,9 @@ def evaluate(env, agent, video, num_episodes, L, step, args):
             episode_reward = 0
             while not done:
                 # center crop image
-                if args.encoder_name.find('pixel')>=0 and 'crop' in args.data_augs:
-                    obs = utils.center_crop_image(obs,args.image_size)
-                if args.encoder_name.find('pixel')>=0 and 'translate' in args.data_augs:
-                    # first crop the center with pre_image_size
-                    obs = utils.center_crop_image(obs, args.pre_transform_image_size)
-                    # then translate cropped to center
-                    obs = utils.center_translate(obs, args.image_size)
+                if args.encoder_name.find('pixel')>=0:
+                    obs = utils.center_crop_image(obs, args.image_size)
+
                 with utils.eval_mode(agent):
                     if sample_stochastically:
                         action = agent.sample_action(obs / 255.)
