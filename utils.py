@@ -137,9 +137,17 @@ class ReplayBuffer(Dataset):
         next_obses = self.next_obses[idxs].astype(np.float32) / 255.
 
         # augment after converting to float
-        if aug_func is not None:
-            obses, obs_shifts = aug_func(obses) if aug_obs else no_aug(obses)
-            next_obses, next_obs_shifts = aug_func(next_obses) if aug_obs else no_aug(next_obses)
+        if aug_obs:
+            obses, obs_shifts = aug_func(obses)
+        else:
+            obses = center_crop_images(obses, self.image_size)
+            obs_shifts = np.zeros((len(obses), 2))
+
+        if aug_next_obs:
+            next_obses, next_obs_shifts = aug_func(next_obses)
+        else:
+            next_obses = center_crop_images(next_obses, self.image_size)
+            next_obs_shifts = np.zeros((len(obses), 2))
 
         obses = torch.as_tensor(obses, device=self.device).float()
         next_obses = torch.as_tensor(next_obses, device=self.device).float()

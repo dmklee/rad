@@ -302,8 +302,8 @@ class RadSacAgent(object):
 
         aug_to_func = {
                 'aug_discrete' : rad.random_crop,
-                'aug_even' : rad.random_crop,
-                'aug_continuous' : rad.random_crop,
+                'aug_even' : rad.random_crop_even,
+                'aug_continuous' : rad.random_crop_continuous,
                 'aug_cnn' : rad.random_crop,
                 'aug_mlp' : rad.random_crop_finalfmap,
                 'aug_qpred' : rad.random_crop,
@@ -394,7 +394,7 @@ class RadSacAgent(object):
         with torch.no_grad():
             _, policy_action, log_pi, _ = self.actor(next_obs, info['next_obs_shifts'],
                                                      aug_finalfmap=self.aug_finalfmap,
-                                                     unaug_finalfmap=self.aug_finalfmap,
+                                                     unaug_finalfmap=self.unaug_finalfmap,
                                                      sample_augs=True,
                                                     )
             target_Q1, target_Q2 = self.critic_target(next_obs, policy_action,
@@ -410,7 +410,7 @@ class RadSacAgent(object):
         # get current Q estimates
         current_Q1, current_Q2 = self.critic(
             obs, action, info['obs_shifts'], detach_encoder=self.detach_encoder,
-            aug_finalfmap=self.aug_finalfmap, unaug_finalfmap=self.aug_finalfmap,
+            aug_finalfmap=self.aug_finalfmap, unaug_finalfmap=self.unaug_finalfmap,
             sample_augs=True,
         )
 
