@@ -18,7 +18,7 @@ ACTION_REPEAT_LOOKUP = {('finger', 'spin') : 2,
                         ('cartpole', 'swingup') : 8,
                         ('reacher', 'easy') : 4,
                         ('cheetah', 'run') : 4,
-                        ('cup', 'catch') : 4,
+                        ('ball_in_cup', 'catch') : 4,
                        }
 
 def add_defaults(args):
