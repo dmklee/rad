@@ -183,7 +183,10 @@ def run(args):
     if os.path.exists(os.path.join(args.work_dir, 'mini_checkpoint.pt')):
         steps_completed = load_checkpoint(args.work_dir, mini=True)['step']
         if steps_completed >= args.num_train_steps:
-            # no need to keep training
+            # no need to keep training, but remove checkpoint if it exists
+            if os.path.exists(os.path.join(args.work_dir, 'checkpoint.pt')):
+                os.remove(os.path.join(args.work_dir, 'checkpoint.pt'))
+
             exit()
 
         checkpoint = load_checkpoint(args.work_dir)
