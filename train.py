@@ -193,6 +193,7 @@ def make_agent(obs_shape, action_shape, args, device):
         encoder_tau=args.encoder_tau,
         num_layers=args.num_layers,
         num_filters=args.num_filters,
+        separable_conv=args.separable_conv,
         log_interval=args.log_interval,
         detach_encoder=args.detach_encoder,
         latent_dim=args.latent_dim,

@@ -157,6 +157,8 @@ def run(args):
                f"-s{args.seed}-{int(args.num_train_steps/1000)}k" \
                f"-{args.data_augs.replace('-','_') if args.data_augs != '' else 'no_aug'}" \
                f"-{args.encoder_name}"
+    if args.separable_conv:
+        exp_name += '-separable'
     args.work_dir = os.path.join(args.results_dir, exp_name)
 
     utils.set_seed_everywhere(args.seed)
@@ -302,9 +304,10 @@ if __name__ == "__main__":
                                 'aug_cnn', 'aug_mlp', 'aug_qpred', 'aug_qtarget',
                                 'no_aug'])
     parser.add_argument('--encoder-name', type=str, default='pixel')
+    parser.add_argument('--separable-conv', action='store_true')
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--num-train-steps', type=int, default=100000)
-    parser.add_argument('--time-limit', type=float, default=0.2,
+    parser.add_argument('--time-limit', type=float, default=7,
                        help='max time allowed to train (in hours)')
     parser.add_argument('--results-dir', type=str, default='./test_results',
                         help='folder where results are saved')

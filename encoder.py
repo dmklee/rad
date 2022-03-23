@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+from torch import Tensor
 import torch.nn as nn
 from torchvision.transforms import GaussianBlur
 from antialiased_cnns import BlurPool
@@ -27,9 +28,49 @@ class Index2d(nn.Module):
         coords = torch.nn.functional.affine_grid(theta, x.size(), align_corners=True).permute(0,3,1,2)
         return torch.concat([x, coords], dim=1)
 
+class SeparableConv2d(nn.Module):
+    def __init__(self,
+                 in_channels: int,
+                 out_channels: int,
+                 kernel_size: int,
+                 stride: int=1,
+                ):
+        super().__init__()
+        self.bias = nn.Parameter(torch.zeros(out_channels, dtype=torch.float32),
+                                 requires_grad = True)
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.stride = stride
+        self.kernel_size = kernel_size
+
+        self.weightA = nn.Parameter(torch.zeros((out_channels, in_channels, kernel_size, 1), dtype=torch.float32),
+                                    requires_grad=True)
+        self.weightB = nn.Parameter(torch.zeros((out_channels, in_channels, 1, kernel_size), dtype=torch.float32),
+                                    requires_grad=True)
+
+        # init weights
+        sqrt_k = np.sqrt(1/(in_channels*kernel_size**2))
+        nn.init.uniform_(self.weightA, -sqrt_k, sqrt_k)
+        nn.init.uniform_(self.weightB, -sqrt_k, sqrt_k)
+        nn.init.uniform_(self.bias, -sqrt_k, sqrt_k)
+
+    def forward(self, x: Tensor):
+        self.weight = torch.matmul(self.weightA, self.weightB)
+        out = nn.functional.conv2d(x, self.weight, self.bias, self.stride)
+        return out
+    
+    def __repr__(self):
+        rep = 'SeparableConv2d({}, {}, kernel_size=({}, {}), stride=({}, {})'
+        return rep.format(self.in_channels, self.out_channels, self.kernel_size,
+                          self.kernel_size, self.stride, self.stride)
+
 def tie_weights(src, trg):
     assert type(src) == type(trg)
-    trg.weight = src.weight
+    if isinstance(src, SeparableConv2d):
+        trg.weightA = src.weightA
+        trg.weightB = src.weightB
+    else:
+        trg.weight = src.weight
     trg.bias = src.bias
 
 def parse_fmap_shifts(fmap_shifts, num_layers):
@@ -54,13 +95,16 @@ def parse_dropout(dropout, num_layers):
             layers[layer_id] = nn.Dropout2d(float(a))
     return layers
 
-def create_cnn(in_channels, filters_per_conv, downsampling_per_conv, downsampling_mode):
+def create_cnn(in_channels, filters_per_conv, downsampling_per_conv,
+               downsampling_mode, separable_conv):
     num_layers = len(filters_per_conv)
     strides = downsampling_per_conv if downsampling_mode == 'stride' else num_layers*[1]
 
+    conv2d_module = SeparableConv2d if separable_conv else nn.Conv2d
+
     channels_list = [in_channels] + filters_per_conv
     convs = nn.ModuleList(
-        [nn.Conv2d(channels_list[i], channels_list[i+1], 3, stride=strides[i]) for i in range(num_layers)]
+        [conv2d_module(channels_list[i], channels_list[i+1], 3, stride=strides[i]) for i in range(num_layers)]
     )
     if downsampling_mode == 'stride':
         downsamplers = nn.ModuleList([nn.Identity() for i in range(num_layers)])
@@ -126,6 +170,7 @@ class PixelEncoder(nn.Module):
                  prepooling_factor=1,
                  projection_dim=2056,
                  indexed_projection=True,
+                 separable_conv=False,
                 ):
         # print('filters_per_conv',filters_per_conv)
         # print('downsampling_per_conv',downsampling_per_conv)
@@ -144,7 +189,8 @@ class PixelEncoder(nn.Module):
         self.convs, self.downsamplers = create_cnn(in_channels=obs_shape[0],
                                                    filters_per_conv=filters_per_conv,
                                                    downsampling_per_conv=downsampling_per_conv,
-                                                   downsampling_mode=downsampling_mode)
+                                                   downsampling_mode=downsampling_mode,
+                                                   separable_conv=separable_conv)
 
         self.fmap_shifts = parse_fmap_shifts(fmap_shifts, self.num_layers)
         self.fmap_dropouts = parse_dropout(dropout, self.num_layers)
@@ -287,6 +333,7 @@ def make_encoder(encoder_type,
                  final_fmap_blur=0.,
                  final_fmap_dropout=0.,
                  final_fmap_actfn='relu',
+                 separable_conv=False,
 ):
     assert encoder_type in _AVAILABLE_ENCODERS
 
@@ -315,7 +362,8 @@ def make_encoder(encoder_type,
                         final_fmap_actfn=final_fmap_actfn,
                         prepooling_factor=1,
                         projection_dim=2056,
-                        indexed_projection=indexed_projection)
+                        indexed_projection=indexed_projection,
+                        separable_conv=separable_conv)
 
 if __name__ == "__main__":
     import time

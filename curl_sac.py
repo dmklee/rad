@@ -49,13 +49,15 @@ class Actor(nn.Module):
     """MLP actor network."""
     def __init__(
         self, obs_shape, action_shape, hidden_dim, encoder_name,
-        log_std_min, log_std_max, num_layers, num_filters, encoder_feature_dim
+        log_std_min, log_std_max, num_layers, num_filters, encoder_feature_dim,
+        separable_conv
     ):
         super().__init__()
 
         self.encoder = make_encoder(
             encoder_name, obs_shape, num_layers,
             num_filters, encoder_feature_dim, output_logits=True,
+            separable_conv=separable_conv,
         )
 
         self.log_std_min = log_std_min
@@ -150,7 +152,7 @@ class Critic(nn.Module):
     """Critic network, employes two q-functions."""
     def __init__(
         self, obs_shape, action_shape, hidden_dim, encoder_name,
-        num_layers, num_filters, encoder_feature_dim
+        num_layers, num_filters, encoder_feature_dim, separable_conv
     ):
         super().__init__()
 
@@ -158,6 +160,7 @@ class Critic(nn.Module):
         self.encoder = make_encoder(
             encoder_name, obs_shape, num_layers,
             num_filters, encoder_feature_dim, output_logits=True,
+            separable_conv=separable_conv,
         )
 
         self.Q1 = QFunction(
@@ -280,6 +283,7 @@ class RadSacAgent(object):
         encoder_tau=0.005,
         num_layers=4,
         num_filters=32,
+        separable_conv=False,
         cpc_update_freq=1,
         log_interval=100,
         detach_encoder=False,
@@ -320,17 +324,17 @@ class RadSacAgent(object):
         self.actor = Actor(
             obs_shape, action_shape, hidden_dim, encoder_name,
             actor_log_std_min, actor_log_std_max, num_layers, num_filters,
-            encoder_feature_dim
+            encoder_feature_dim, separable_conv,
         ).to(device)
 
         self.critic = Critic(
             obs_shape, action_shape, hidden_dim, encoder_name,
-            num_layers, num_filters, encoder_feature_dim
+            num_layers, num_filters, encoder_feature_dim, separable_conv,
         ).to(device)
 
         self.critic_target = Critic(
             obs_shape, action_shape, hidden_dim, encoder_name,
-            num_layers, num_filters, encoder_feature_dim
+            num_layers, num_filters, encoder_feature_dim, separable_conv,
         ).to(device)
 
         self.critic_target.load_state_dict(self.critic.state_dict())
