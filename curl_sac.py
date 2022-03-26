@@ -77,11 +77,12 @@ class Actor(nn.Module):
 
     def forward(self, obs, obs_shifts=None, compute_pi=True,
                 compute_log_pi=True, detach_encoder=False,
-                aug_finalfmap=False, unaug_finalfmap=False,
-                sample_augs=False,
+                aug_finalfmap=False, aug_finalfmap_detach=False,
+                unaug_finalfmap=False, sample_augs=False,
     ):
         obs = self.encoder(obs, obs_shifts, detach=detach_encoder,
                            aug_finalfmap=aug_finalfmap,
+                           aug_finalfmap_detach=aug_finalfmap_detach,
                            unaug_finalfmap=unaug_finalfmap,
                            sample_augs=sample_augs,
                           )
@@ -177,11 +178,13 @@ class Critic(nn.Module):
         self.apply(weight_init)
 
     def forward(self, obs, action, obs_shifts=None, detach_encoder=False,
-                aug_finalfmap=False, unaug_finalfmap=False, sample_augs=False,
+                aug_finalfmap=False, aug_finalfmap_detach=False,
+                unaug_finalfmap=False, sample_augs=False,
                ):
         # detach_encoder allows to stop gradient propogation to encoder
         obs = self.encoder(obs, obs_shifts, detach=detach_encoder,
                            aug_finalfmap=aug_finalfmap,
+                           aug_finalfmap_detach=aug_finalfmap_detach,
                            unaug_finalfmap=unaug_finalfmap,
                            sample_augs=sample_augs,
                           )
@@ -310,6 +313,7 @@ class RadSacAgent(object):
                 'aug_continuous' : rad.random_crop_continuous,
                 'aug_cnn' : rad.random_crop,
                 'aug_mlp' : rad.random_crop_finalfmap,
+                'aug_mlp_detach' : rad.random_crop_finalfmap,
                 'aug_qpred' : rad.random_crop,
                 'aug_qtarget' : rad.random_crop,
                 'no_aug' : rad.no_aug,
@@ -319,6 +323,7 @@ class RadSacAgent(object):
         self.aug_obs = self.data_augs != 'aug_qtarget'
         self.aug_next_obs = self.data_augs != 'aug_qpred'
         self.aug_finalfmap = self.data_augs == 'aug_mlp'
+        self.aug_finalfmap_detach = self.data_augs == 'aug_mlp_detach'
         self.unaug_finalfmap = self.data_augs == 'aug_cnn'
 
         self.actor = Actor(
@@ -398,12 +403,14 @@ class RadSacAgent(object):
         with torch.no_grad():
             _, policy_action, log_pi, _ = self.actor(next_obs, info['next_obs_shifts'],
                                                      aug_finalfmap=self.aug_finalfmap,
+                                                     aug_finalfmap_detach=self.aug_finalfmap_detach,
                                                      unaug_finalfmap=self.unaug_finalfmap,
                                                      sample_augs=True,
                                                     )
             target_Q1, target_Q2 = self.critic_target(next_obs, policy_action,
                                                       info['next_obs_shifts'],
                                                       aug_finalfmap=self.aug_finalfmap,
+                                                      aug_finalfmap_detach=self.aug_finalfmap_detach,
                                                       unaug_finalfmap=self.unaug_finalfmap,
                                                       sample_augs=True,
                                                      )
@@ -414,8 +421,8 @@ class RadSacAgent(object):
         # get current Q estimates
         current_Q1, current_Q2 = self.critic(
             obs, action, info['obs_shifts'], detach_encoder=self.detach_encoder,
-            aug_finalfmap=self.aug_finalfmap, unaug_finalfmap=self.unaug_finalfmap,
-            sample_augs=True,
+            aug_finalfmap=self.aug_finalfmap, aug_finalfmap_detach=self.aug_finalfmap_detach,
+            unaug_finalfmap=self.unaug_finalfmap, sample_augs=True,
         )
 
         critic_loss = F.mse_loss(current_Q1,
@@ -435,10 +442,12 @@ class RadSacAgent(object):
         # detach encoder, so we don't update it with the actor loss
         _, pi, log_pi, log_std = self.actor(obs, info['obs_shifts'], detach_encoder=True,
                                             aug_finalfmap=self.aug_finalfmap,
+                                            aug_finalfmap_detach=self.aug_finalfmap_detach,
                                             unaug_finalfmap=self.unaug_finalfmap,
                                             sample_augs=True)
         actor_Q1, actor_Q2 = self.critic(obs, pi, info['obs_shifts'], detach_encoder=True,
                                          aug_finalfmap=self.aug_finalfmap,
+                                         aug_finalfmap_detach=self.aug_finalfmap_detach,
                                          unaug_finalfmap=self.unaug_finalfmap,
                                          sample_augs=True)
 

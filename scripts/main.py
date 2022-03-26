@@ -301,8 +301,8 @@ if __name__ == "__main__":
     parser.add_argument('--env', type=str, default='finger-spin')
     parser.add_argument('--data-augs', type=str, default='no_aug',
                        choices=['aug_discrete', 'aug_continuous', 'aug_even',
-                                'aug_cnn', 'aug_mlp', 'aug_qpred', 'aug_qtarget',
-                                'no_aug'])
+                                'aug_cnn', 'aug_mlp', 'aug_mlp_detach',
+                                'aug_qpred', 'aug_qtarget', 'no_aug'])
     parser.add_argument('--encoder-name', type=str, default='pixel')
     parser.add_argument('--separable-conv', action='store_true')
     parser.add_argument('--seed', type=int, default=0)
@@ -312,6 +312,7 @@ if __name__ == "__main__":
     parser.add_argument('--results-dir', type=str, default='./test_results',
                         help='folder where results are saved')
     args = parser.parse_args()
+    print(args)
 
     args = add_defaults(args)
 

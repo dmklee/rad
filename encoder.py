@@ -257,7 +257,7 @@ class PixelEncoder(nn.Module):
         return conv
 
     def forward(self, obs, obs_shifts=None, detach=False, sample_augs=False,
-                aug_finalfmap=False, unaug_finalfmap=False,
+                aug_finalfmap=False, aug_finalfmap_detach=False, unaug_finalfmap=False,
                ):
         h = self.forward_conv(obs, sample_augs=sample_augs)
 
@@ -269,6 +269,11 @@ class PixelEncoder(nn.Module):
             h = affine2d(h, 0.5*obs_shifts.float())
             h = center_crop_images(h, 35)
             # maybe you should center crop here!
+
+        if aug_finalfmap_detach:
+            aug_h = affine2d(h, 0.5*obs_shifts.float())
+            aug_h = center_crop_images(aug_h, 35)
+            h = 0*h + aug_h.detach()
 
         if detach:
             h = h.detach()
