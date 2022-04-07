@@ -159,6 +159,8 @@ def run(args):
                f"-{args.encoder_name}"
     if args.separable_conv:
         exp_name += '-separable'
+    if args.learnable_smoothing:
+        exp_name += '-learnable_smoothing'
     args.work_dir = os.path.join(args.results_dir, exp_name)
 
     utils.set_seed_everywhere(args.seed)
@@ -305,6 +307,7 @@ if __name__ == "__main__":
                                 'aug_qpred', 'aug_qtarget', 'no_aug'])
     parser.add_argument('--encoder-name', type=str, default='pixel')
     parser.add_argument('--separable-conv', action='store_true')
+    parser.add_argument('--learnable-smoothing', action='store_true')
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--num-train-steps', type=int, default=100000)
     parser.add_argument('--time-limit', type=float, default=7,

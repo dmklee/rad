@@ -171,6 +171,7 @@ class PixelEncoder(nn.Module):
                  projection_dim=2056,
                  indexed_projection=True,
                  separable_conv=False,
+                 learnable_smoothing=False,
                 ):
         # print('filters_per_conv',filters_per_conv)
         # print('downsampling_per_conv',downsampling_per_conv)
@@ -190,7 +191,16 @@ class PixelEncoder(nn.Module):
                                                    filters_per_conv=filters_per_conv,
                                                    downsampling_per_conv=downsampling_per_conv,
                                                    downsampling_mode=downsampling_mode,
-                                                   separable_conv=separable_conv)
+                                                   separable_conv=separable_conv,
+                                                  )
+
+        self.learnable_smoothing = learnable_smoothing
+        if self.learnable_smoothing:
+            self.log_sigma = nn.Parameter(torch.zeros((1,), dtype=torch.float32),
+                                                  requires_grad=True)
+            grid = torch.stack(torch.meshgrid(2*[torch.linspace(-1,1,steps=5)], indexing='ij'))
+            dist = torch.linalg.norm(grid, dim=0).view(1,1,5,5)
+            self.radial_dist = nn.Parameter(data= dist, requires_grad=False)
 
         self.fmap_shifts = parse_fmap_shifts(fmap_shifts, self.num_layers)
         self.fmap_dropouts = parse_dropout(dropout, self.num_layers)
@@ -275,6 +285,13 @@ class PixelEncoder(nn.Module):
             aug_h = center_crop_images(aug_h, 35)
             h = 0*h + aug_h.detach()
 
+        if self.learnable_smoothing:
+            sigma = torch.exp(self.log_sigma)
+            kernel = torch.exp(-0.5 * (self.radial_dist/sigma).pow(2))
+            kernel = kernel/kernel.sum()
+            kernel = kernel.expand(h.size(1),-1,-1,-1)
+            h = nn.functional.conv2d(h, kernel, padding=2, groups=h.size(1))
+
         if detach:
             h = h.detach()
 
@@ -301,6 +318,8 @@ class PixelEncoder(nn.Module):
         # only tie conv layers
         for i in range(self.num_layers):
             tie_weights(src=source.convs[i], trg=self.convs[i])
+        if self.learnable_smoothing:
+            self.log_sigma = source.log_sigma
 
     def log(self, L, step, log_freq):
         if step % log_freq != 0:
@@ -339,6 +358,7 @@ def make_encoder(encoder_type,
                  final_fmap_dropout=0.,
                  final_fmap_actfn='relu',
                  separable_conv=False,
+                 learnable_smoothing=False,
 ):
     assert encoder_type in _AVAILABLE_ENCODERS
 
@@ -368,7 +388,9 @@ def make_encoder(encoder_type,
                         prepooling_factor=1,
                         projection_dim=2056,
                         indexed_projection=indexed_projection,
-                        separable_conv=separable_conv)
+                        separable_conv=separable_conv,
+                        learnable_smoothing=learnable_smoothing,
+                       )
 
 if __name__ == "__main__":
     import time
