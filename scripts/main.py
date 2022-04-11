@@ -43,7 +43,7 @@ def add_defaults(args):
     args.actor_log_std_min = -10
     args.actor_log_std_max = 2
     args.actor_update_freq = 2
-    args.encoder_feature_dim = 50
+    # args.encoder_feature_dim = 50
     args.encoder_lr = 2e-4 if args.env == 'cheetah-run' else 1e-3
     args.encoder_tau = 0.05
     args.num_layers = 4
@@ -161,6 +161,8 @@ def run(args):
         exp_name += '-separable'
     if args.learnable_smoothing:
         exp_name += '-learnable_smoothing'
+    if args.encoder_feature_dim != 50:
+        exp_name += f'-{args.encoder_feature_dim}encfdim'
     args.work_dir = os.path.join(args.results_dir, exp_name)
 
     utils.set_seed_everywhere(args.seed)
@@ -308,6 +310,7 @@ if __name__ == "__main__":
     parser.add_argument('--encoder-name', type=str, default='pixel')
     parser.add_argument('--separable-conv', action='store_true')
     parser.add_argument('--learnable-smoothing', action='store_true')
+    parser.add_argument('--encoder-feature-dim', type=int, default=50)
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--num-train-steps', type=int, default=100000)
     parser.add_argument('--time-limit', type=float, default=7,

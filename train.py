@@ -147,6 +147,9 @@ def evaluate(env, agent, video, num_episodes, L, step, args):
 
 
 def make_agent(obs_shape, action_shape, args, device):
+    if 'learnable_smoothing' not in vars(args):
+        # backward compatibility
+        args.learnable_smoothing = False
     if 'encoder_fmap_shifts' not in vars(args):
         # backward compatibility
         args.encoder_fmap_shifts = ''
@@ -194,6 +197,7 @@ def make_agent(obs_shape, action_shape, args, device):
         num_layers=args.num_layers,
         num_filters=args.num_filters,
         separable_conv=args.separable_conv,
+        learnable_smoothing=args.learnable_smoothing,
         log_interval=args.log_interval,
         detach_encoder=args.detach_encoder,
         latent_dim=args.latent_dim,
