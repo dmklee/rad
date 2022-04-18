@@ -283,7 +283,7 @@ class PixelEncoder(nn.Module):
         if aug_finalfmap_detach:
             aug_h = affine2d(h, 0.5*obs_shifts.float())
             aug_h = center_crop_images(aug_h, 35)
-            h = 0*h + aug_h.detach()
+            h = h - h.detach() + aug_h.detach()
 
         if self.learnable_smoothing:
             sigma = torch.exp(self.log_sigma)
